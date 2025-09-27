@@ -1,0 +1,59 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+
+# Data files - NEVER commit raw data
+data_pipeline/raw/**
+data_pipeline/processed/**
+data_pipeline/staging/**
+*.sqlite
+*.db
+*.csv
+*.xlsx
+*.zip
+*.json
+*.geojson
+*.shp
+*.shx
+*.dbf
+*.prj
+
+# API keys and secrets - CRITICAL
+.env
+config/api_keys/**
+*.key
+*secret*
+*password*
+
+# Jupyter notebooks checkpoints
+.ipynb_checkpoints/
+
+# Logs
+logs/**
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+temp/
+tmp/
+*.tmp
+
+# Large files that shouldn't be in git
+*.zip
+*.tar.gz
+*.parquet
