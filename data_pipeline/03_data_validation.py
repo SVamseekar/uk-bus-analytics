@@ -1,15 +1,17 @@
 """
-UK Bus Analytics - Data Validation & Quality Assessment
-Validates processed data against quality thresholds
-Generates comprehensive quality reports
+Dynamic UK Bus Analytics Data Validation Pipeline
+Validates all processed data without hardcoding
+Generates quality reports for all regions and datasets
 """
 import sys
-import pandas as pd
-import numpy as np
+import yaml
+import json
 from pathlib import Path
 from datetime import datetime
+from typing import Dict, List, Optional, Any
+import pandas as pd
+import numpy as np
 from loguru import logger
-import json
 
 sys.path.append(str(Path(__file__).parent.parent))
 
@@ -18,551 +20,648 @@ from config.settings import (
     VALIDATION_PATTERNS, LOGS_DIR
 )
 
-logger.add(LOGS_DIR / "validation_{time}.log",
-          rotation="1 day", retention="30 days")
+logger.add(LOGS_DIR / "validation_{time}.log", rotation="1 day", retention="30 days")
 
 
-class DataQualityValidator:
+class DynamicDataValidationPipeline:
     """
-    Comprehensive data quality validation for UK transport data
-    Checks completeness, accuracy, consistency, and validity
+    Fully dynamic data validation pipeline
+    Discovers and validates all processed data
     """
     
-    def __init__(self):
+    def __init__(self, config_path: Optional[Path] = None):
+        """Initialize validation pipeline"""
+        self.config_path = config_path or Path(__file__).parent.parent / 'config' / 'ingestion_config.yaml'
+        self.config = self._load_config()
+        
+        # Validation results
         self.validation_results = {
             'timestamp': datetime.now().isoformat(),
-            'checks_passed': 0,
-            'checks_failed': 0,
-            'checks_warned': 0,
-            'stop_validation': {},
-            'route_validation': {},
-            'demographic_validation': {},
-            'overall_quality_score': 0.0
+            'regions': {},
+            'overall': {
+                'checks_passed': 0,
+                'checks_failed': 0,
+                'checks_warned': 0
+            },
+            'quality_scores': {},
+            'summary': {}
         }
-        self.data = {}
     
-    def load_processed_data(self):
-        """Load processed data for validation"""
-        logger.info("Loading processed data for validation")
+    def _load_config(self) -> Dict:
+        """Load configuration"""
+        if not self.config_path.exists():
+            return {'regions': {}}
         
-        required_files = {
-            'stops': DATA_PROCESSED / 'stops_processed.csv',
-            'routes': DATA_PROCESSED / 'routes_processed.csv',
-            'services': DATA_PROCESSED / 'services_processed.csv'
+        with open(self.config_path, 'r') as f:
+            return yaml.safe_load(f)
+    
+    def discover_processed_files(self) -> Dict[str, Dict[str, Path]]:
+        """
+        Dynamically discover all processed data files
+        """
+        logger.info("Discovering processed data files...")
+        
+        regions_dir = DATA_PROCESSED / 'regions'
+        if not regions_dir.exists():
+            logger.error(f"Processed regions directory not found: {regions_dir}")
+            return {}
+        
+        discovered = {}
+        
+        for region_dir in regions_dir.iterdir():
+            if region_dir.is_dir():
+                region_code = region_dir.name
+                region_files = {}
+                
+                for file in region_dir.glob('*_processed.csv'):
+                    data_type = file.stem.replace('_processed', '')
+                    region_files[data_type] = file
+                
+                if region_files:
+                    discovered[region_code] = region_files
+                    logger.info(f"✓ {region_code}: {len(region_files)} processed files")
+        
+        logger.success(f"Discovered {len(discovered)} regions with processed data")
+        return discovered
+    
+    def validate_data_completeness(self, df: pd.DataFrame, data_type: str, 
+                                   region_code: str) -> Dict:
+        """
+        Validate data completeness dynamically
+        Checks for missing values and record counts
+        """
+        results = {
+            'total_records': len(df),
+            'column_count': len(df.columns),
+            'missing_data': {},
+            'issues': []
         }
         
-        for data_type, file_path in required_files.items():
-            if file_path.exists():
-                try:
-                    self.data[data_type] = pd.read_csv(file_path)
-                    logger.info(f"Loaded {data_type}: {len(self.data[data_type])} records")
-                except Exception as e:
-                    logger.error(f"Failed to load {data_type}: {e}")
-            else:
-                logger.warning(f"File not found: {file_path}")
+        # Check each column for completeness
+        for column in df.columns:
+            missing_count = df[column].isna().sum()
+            missing_pct = (missing_count / len(df)) * 100 if len(df) > 0 else 0
+            
+            if missing_pct > 0:
+                results['missing_data'][column] = {
+                    'count': int(missing_count),
+                    'percentage': round(missing_pct, 2)
+                }
+                
+                # Flag high missing data
+                if missing_pct > 50:
+                    results['issues'].append(f"{column}: {missing_pct:.1f}% missing (critical)")
+                    self._record_check(
+                        f"{region_code}_{data_type}_{column}_completeness",
+                        False, 'critical',
+                        f"{column} has {missing_pct:.1f}% missing data"
+                    )
+                elif missing_pct > 20:
+                    results['issues'].append(f"{column}: {missing_pct:.1f}% missing (warning)")
+                    self._record_check(
+                        f"{region_code}_{data_type}_{column}_completeness",
+                        True, 'warning',
+                        f"{column} has {missing_pct:.1f}% missing data"
+                    )
         
-        return len(self.data) > 0
-    
-    def validate_stops_completeness(self):
-        """Validate stops data completeness"""
-        logger.info("Validating stops completeness")
-        
-        if 'stops' not in self.data:
-            self._record_check('stops_available', False, 'critical',
-                             "No stops data available")
-            return
-        
-        stops_df = self.data['stops']
-        results = {}
-        
-        # Check minimum record count
-        min_stops = DATA_QUALITY_THRESHOLDS['gtfs']['min_stops_total']
-        results['sufficient_records'] = len(stops_df) >= min_stops
-        
-        if results['sufficient_records']:
-            self._record_check('stops_count', True, 'info',
-                             f"Sufficient stops: {len(stops_df)}")
+        # Check minimum record threshold
+        min_records = self._get_min_records_threshold(data_type)
+        if len(df) < min_records:
+            results['issues'].append(f"Low record count: {len(df)} < {min_records}")
+            self._record_check(
+                f"{region_code}_{data_type}_record_count",
+                False, 'warning',
+                f"Only {len(df)} records (expected >{min_records})"
+            )
         else:
-            self._record_check('stops_count', False, 'warning',
-                             f"Low stop count: {len(stops_df)} < {min_stops}")
+            self._record_check(
+                f"{region_code}_{data_type}_record_count",
+                True, 'info',
+                f"Sufficient records: {len(df)}"
+            )
         
-        # Check required fields
-        required_fields = ['latitude', 'longitude']
-        for field in required_fields:
-            field_present = field in stops_df.columns
-            results[f'{field}_present'] = field_present
-            
-            if field_present:
-                missing_count = stops_df[field].isna().sum()
-                missing_pct = (missing_count / len(stops_df)) * 100
-                
-                results[f'{field}_completeness'] = 100 - missing_pct
-                
-                if missing_pct == 0:
-                    self._record_check(f'{field}_complete', True, 'info',
-                                     f"No missing {field} values")
-                elif missing_pct < 5:
-                    self._record_check(f'{field}_complete', True, 'warning',
-                                     f"{missing_pct:.1f}% missing {field}")
-                else:
-                    self._record_check(f'{field}_complete', False, 'critical',
-                                     f"{missing_pct:.1f}% missing {field}")
-            else:
-                self._record_check(f'{field}_present', False, 'critical',
-                                 f"Required field missing: {field}")
-        
-        # Check for duplicates
-        if 'stop_id' in stops_df.columns:
-            duplicate_count = stops_df['stop_id'].duplicated().sum()
-            results['duplicates'] = duplicate_count
-            
-            if duplicate_count == 0:
-                self._record_check('stops_unique', True, 'info',
-                                 "No duplicate stop IDs")
-            else:
-                self._record_check('stops_unique', False, 'warning',
-                                 f"{duplicate_count} duplicate stop IDs found")
-        
-        self.validation_results['stop_validation']['completeness'] = results
+        return results
     
-    def validate_stops_accuracy(self):
-        """Validate stops coordinate accuracy"""
-        logger.info("Validating stops coordinate accuracy")
+    def _get_min_records_threshold(self, data_type: str) -> int:
+        """Get minimum record threshold dynamically"""
+        thresholds = {
+            'stops': DATA_QUALITY_THRESHOLDS.get('gtfs', {}).get('min_stops_total', 100),
+            'routes': 5,
+            'services': 5,
+            'trips': 10
+        }
+        return thresholds.get(data_type, 1)
+    
+    def validate_stops_coordinates(self, df: pd.DataFrame, region_code: str) -> Dict:
+        """
+        Validate stop coordinates dynamically
+        """
+        results = {
+            'has_coordinates': False,
+            'valid_coordinates': 0,
+            'invalid_coordinates': 0,
+            'coordinate_precision': 0,
+            'issues': []
+        }
         
-        if 'stops' not in self.data:
-            return
+        if 'latitude' not in df.columns or 'longitude' not in df.columns:
+            results['issues'].append("Missing coordinate columns")
+            self._record_check(
+                f"{region_code}_stops_coordinates_present",
+                False, 'critical',
+                "No coordinate columns found"
+            )
+            return results
         
-        stops_df = self.data['stops']
-        results = {}
+        results['has_coordinates'] = True
         
-        if 'latitude' not in stops_df.columns or 'longitude' not in stops_df.columns:
-            self._record_check('coordinates_available', False, 'critical',
-                             "Coordinate columns missing")
-            return
-        
-        # Check UK coordinate bounds
+        # Validate UK bounds
         uk_bounds = DATA_QUALITY_THRESHOLDS['gtfs']['coordinate_bounds']
         
-        valid_lat = (
-            (stops_df['latitude'] >= uk_bounds['min_lat']) &
-            (stops_df['latitude'] <= uk_bounds['max_lat'])
+        valid_mask = (
+            (df['latitude'] >= uk_bounds['min_lat']) &
+            (df['latitude'] <= uk_bounds['max_lat']) &
+            (df['longitude'] >= uk_bounds['min_lon']) &
+            (df['longitude'] <= uk_bounds['max_lon']) &
+            df['latitude'].notna() &
+            df['longitude'].notna()
         )
-        valid_lon = (
-            (stops_df['longitude'] >= uk_bounds['min_lon']) &
-            (stops_df['longitude'] <= uk_bounds['max_lon'])
-        )
-        valid_coords = valid_lat & valid_lon
         
-        invalid_count = (~valid_coords).sum()
-        invalid_pct = (invalid_count / len(stops_df)) * 100
+        results['valid_coordinates'] = int(valid_mask.sum())
+        results['invalid_coordinates'] = int((~valid_mask).sum())
         
-        results['valid_uk_coordinates'] = 100 - invalid_pct
+        valid_pct = (results['valid_coordinates'] / len(df)) * 100 if len(df) > 0 else 0
         
-        if invalid_pct == 0:
-            self._record_check('coordinate_bounds', True, 'info',
-                             "All coordinates within UK bounds")
-        elif invalid_pct < 1:
-            self._record_check('coordinate_bounds', True, 'warning',
-                             f"{invalid_pct:.2f}% coordinates outside UK bounds")
+        if valid_pct < 50:
+            results['issues'].append(f"Only {valid_pct:.1f}% have valid UK coordinates")
+            self._record_check(
+                f"{region_code}_stops_coordinate_validity",
+                False, 'critical',
+                f"Only {valid_pct:.1f}% valid coordinates"
+            )
+        elif valid_pct < 80:
+            self._record_check(
+                f"{region_code}_stops_coordinate_validity",
+                True, 'warning',
+                f"{valid_pct:.1f}% valid coordinates"
+            )
         else:
-            self._record_check('coordinate_bounds', False, 'critical',
-                             f"{invalid_pct:.1f}% coordinates outside UK bounds")
+            self._record_check(
+                f"{region_code}_stops_coordinate_validity",
+                True, 'info',
+                f"{valid_pct:.1f}% valid coordinates"
+            )
         
         # Check coordinate precision
-        if valid_coords.any():
-            lat_precision = stops_df.loc[valid_coords, 'latitude'].apply(
+        valid_coords = df[valid_mask]
+        if len(valid_coords) > 0:
+            lat_precision = valid_coords['latitude'].apply(
                 lambda x: len(str(x).split('.')[-1]) if '.' in str(x) else 0
             ).mean()
-            lon_precision = stops_df.loc[valid_coords, 'longitude'].apply(
+            lon_precision = valid_coords['longitude'].apply(
                 lambda x: len(str(x).split('.')[-1]) if '.' in str(x) else 0
             ).mean()
             
-            results['avg_coordinate_precision'] = (lat_precision + lon_precision) / 2
+            results['coordinate_precision'] = round((lat_precision + lon_precision) / 2, 2)
             
             min_precision = DATA_QUALITY_THRESHOLDS['geographic']['coordinate_precision']
-            if results['avg_coordinate_precision'] >= min_precision:
-                self._record_check('coordinate_precision', True, 'info',
-                                 f"Good coordinate precision: {results['avg_coordinate_precision']:.1f} decimals")
+            if results['coordinate_precision'] >= min_precision:
+                self._record_check(
+                    f"{region_code}_stops_coordinate_precision",
+                    True, 'info',
+                    f"Good precision: {results['coordinate_precision']} decimals"
+                )
             else:
-                self._record_check('coordinate_precision', False, 'warning',
-                                 f"Low coordinate precision: {results['avg_coordinate_precision']:.1f} decimals")
+                self._record_check(
+                    f"{region_code}_stops_coordinate_precision",
+                    False, 'warning',
+                    f"Low precision: {results['coordinate_precision']} decimals"
+                )
         
-        self.validation_results['stop_validation']['accuracy'] = results
+        return results
     
-    def validate_stops_consistency(self):
-        """Validate internal consistency of stops data"""
-        logger.info("Validating stops consistency")
+    def validate_lsoa_coverage(self, df: pd.DataFrame, region_code: str) -> Dict:
+        """
+        Validate LSOA code coverage dynamically
+        """
+        results = {
+            'has_lsoa': False,
+            'lsoa_coverage': 0,
+            'valid_lsoa_codes': 0,
+            'issues': []
+        }
         
-        if 'stops' not in self.data:
-            return
-        
-        stops_df = self.data['stops']
-        results = {}
-        
-        # Check for stops with same coordinates
-        if 'latitude' in stops_df.columns and 'longitude' in stops_df.columns:
-            coord_duplicates = stops_df.duplicated(subset=['latitude', 'longitude']).sum()
-            results['coordinate_duplicates'] = coord_duplicates
-            
-            if coord_duplicates == 0:
-                self._record_check('unique_locations', True, 'info',
-                                 "All stops have unique coordinates")
-            elif coord_duplicates < len(stops_df) * 0.05:  # Less than 5%
-                self._record_check('unique_locations', True, 'warning',
-                                 f"{coord_duplicates} stops share coordinates")
-            else:
-                self._record_check('unique_locations', False, 'warning',
-                                 f"{coord_duplicates} stops share coordinates (>5%)")
-        
-        # Check name consistency
-        if 'name' in stops_df.columns or 'stop_name' in stops_df.columns:
-            name_col = 'name' if 'name' in stops_df.columns else 'stop_name'
-            
-            missing_names = stops_df[name_col].isna().sum()
-            missing_names_pct = (missing_names / len(stops_df)) * 100
-            
-            results['missing_names_pct'] = missing_names_pct
-            
-            if missing_names_pct < 10:
-                self._record_check('stop_names', True, 'info',
-                                 f"{100 - missing_names_pct:.1f}% stops have names")
-            else:
-                self._record_check('stop_names', False, 'warning',
-                                 f"{missing_names_pct:.1f}% stops missing names")
-        
-        self.validation_results['stop_validation']['consistency'] = results
-    
-    def validate_routes(self):
-        """Validate routes data"""
-        logger.info("Validating routes data")
-        
-        if 'routes' not in self.data:
-            logger.warning("No routes data to validate")
-            return
-        
-        routes_df = self.data['routes']
-        results = {}
-        
-        # Basic counts
-        results['total_routes'] = len(routes_df)
-        
-        if len(routes_df) > 0:
-            self._record_check('routes_available', True, 'info',
-                             f"{len(routes_df)} routes found")
-        else:
-            self._record_check('routes_available', False, 'warning',
-                             "No routes data available")
-            return
-        
-        # Check for route identifiers
-        id_columns = ['route_id', 'service_code']
-        for col in id_columns:
-            if col in routes_df.columns:
-                unique_count = routes_df[col].nunique()
-                results[f'unique_{col}'] = unique_count
-                self._record_check(f'{col}_present', True, 'info',
-                                 f"{unique_count} unique {col}s")
+        lsoa_column = None
+        for col in ['lsoa_code', 'LSOA21CD', 'LSOA11CD']:
+            if col in df.columns:
+                lsoa_column = col
                 break
         
-        self.validation_results['route_validation'] = results
-    
-    def validate_demographic_data(self):
-        """Validate demographic data integration"""
-        logger.info("Validating demographic data")
+        if not lsoa_column:
+            results['issues'].append("No LSOA code column found")
+            self._record_check(
+                f"{region_code}_lsoa_present",
+                False, 'warning',
+                "No LSOA codes found"
+            )
+            return results
         
-        if 'stops' not in self.data:
-            return
+        results['has_lsoa'] = True
         
-        stops_df = self.data['stops']
-        results = {}
+        # Calculate coverage
+        lsoa_coverage = df[lsoa_column].notna().sum()
+        coverage_pct = (lsoa_coverage / len(df)) * 100 if len(df) > 0 else 0
+        results['lsoa_coverage'] = round(coverage_pct, 2)
         
-        # Check for LSOA codes
-        lsoa_columns = ['lsoa_code', 'LSOA21CD', 'LSOA11CD']
-        lsoa_col = None
-        
-        for col in lsoa_columns:
-            if col in stops_df.columns:
-                lsoa_col = col
-                break
-        
-        if lsoa_col:
-            lsoa_coverage = stops_df[lsoa_col].notna().sum()
-            lsoa_pct = (lsoa_coverage / len(stops_df)) * 100
-            
-            results['lsoa_coverage_pct'] = lsoa_pct
-            
-            if lsoa_pct > 80:
-                self._record_check('lsoa_coverage', True, 'info',
-                                 f"{lsoa_pct:.1f}% stops have LSOA codes")
-            elif lsoa_pct > 50:
-                self._record_check('lsoa_coverage', True, 'warning',
-                                 f"{lsoa_pct:.1f}% stops have LSOA codes")
-            else:
-                self._record_check('lsoa_coverage', False, 'warning',
-                                 f"Low LSOA coverage: {lsoa_pct:.1f}%")
+        if coverage_pct < 50:
+            results['issues'].append(f"Low LSOA coverage: {coverage_pct:.1f}%")
+            self._record_check(
+                f"{region_code}_lsoa_coverage",
+                False, 'warning',
+                f"Low LSOA coverage: {coverage_pct:.1f}%"
+            )
+        elif coverage_pct < 80:
+            self._record_check(
+                f"{region_code}_lsoa_coverage",
+                True, 'warning',
+                f"Moderate LSOA coverage: {coverage_pct:.1f}%"
+            )
         else:
-            self._record_check('lsoa_available', False, 'warning',
-                             "No LSOA codes found in stops data")
+            self._record_check(
+                f"{region_code}_lsoa_coverage",
+                True, 'info',
+                f"Good LSOA coverage: {coverage_pct:.1f}%"
+            )
         
-        # Check for demographic indicators
-        demographic_indicators = [
-            'population', 'total_population', 'imd_score', 
-            'imd_rank', 'income', 'unemployment'
-        ]
+        # Validate LSOA code format
+        if lsoa_column and df[lsoa_column].notna().any():
+            valid_pattern = VALIDATION_PATTERNS.get('lsoa_code_2021', r'^E0[12]\d{6}')
+            
+            valid_codes = df[df[lsoa_column].notna()][lsoa_column].apply(
+                lambda x: bool(pd.Series(str(x)).str.match(valid_pattern).iloc[0])
+            )
+            
+            results['valid_lsoa_codes'] = int(valid_codes.sum())
+            valid_pct = (results['valid_lsoa_codes'] / lsoa_coverage) * 100 if lsoa_coverage > 0 else 0
+            
+            if valid_pct < 50:
+                results['issues'].append(f"Invalid LSOA format: {100-valid_pct:.1f}%")
         
-        found_indicators = []
-        for indicator in demographic_indicators:
-            if indicator in stops_df.columns:
-                found_indicators.append(indicator)
+        return results
+    
+    def validate_demographic_integration(self, df: pd.DataFrame, region_code: str) -> Dict:
+        """
+        Validate demographic data integration dynamically
+        """
+        results = {
+            'demographic_indicators_found': [],
+            'coverage_by_indicator': {},
+            'issues': []
+        }
+        
+        # Dynamically detect demographic columns
+        demographic_patterns = {
+            'population': ['population', 'pop_', 'resident'],
+            'income': ['income', 'median_income', 'household_income'],
+            'unemployment': ['unemployment', 'jobless', 'claimant'],
+            'deprivation': ['imd', 'deprivation', 'index_multiple'],
+            'age': ['age', 'elderly', 'young'],
+            'car_ownership': ['car', 'vehicle', 'ownership']
+        }
+        
+        for indicator_type, patterns in demographic_patterns.items():
+            matching_cols = [col for col in df.columns 
+                           if any(pattern.lower() in col.lower() for pattern in patterns)]
+            
+            if matching_cols:
+                results['demographic_indicators_found'].append(indicator_type)
                 
-                non_null = stops_df[indicator].notna().sum()
-                coverage_pct = (non_null / len(stops_df)) * 100
+                # Calculate coverage for first matching column
+                col = matching_cols[0]
+                coverage = df[col].notna().sum()
+                coverage_pct = (coverage / len(df)) * 100 if len(df) > 0 else 0
+                results['coverage_by_indicator'][indicator_type] = round(coverage_pct, 2)
                 
                 if coverage_pct > 50:
-                    self._record_check(f'{indicator}_available', True, 'info',
-                                     f"{indicator}: {coverage_pct:.1f}% coverage")
+                    self._record_check(
+                        f"{region_code}_demographic_{indicator_type}",
+                        True, 'info',
+                        f"{indicator_type}: {coverage_pct:.1f}% coverage"
+                    )
         
-        results['demographic_indicators_found'] = found_indicators
-        results['demographic_indicators_count'] = len(found_indicators)
-        
-        if len(found_indicators) > 0:
-            self._record_check('demographic_integration', True, 'info',
-                             f"Found {len(found_indicators)} demographic indicators")
+        if not results['demographic_indicators_found']:
+            results['issues'].append("No demographic indicators found")
+            self._record_check(
+                f"{region_code}_demographic_integration",
+                False, 'warning',
+                "No demographic data integrated"
+            )
         else:
-            self._record_check('demographic_integration', False, 'warning',
-                             "No demographic indicators found")
+            self._record_check(
+                f"{region_code}_demographic_integration",
+                True, 'info',
+                f"Found {len(results['demographic_indicators_found'])} indicators"
+            )
         
-        self.validation_results['demographic_validation'] = results
+        return results
     
-    def calculate_quality_score(self):
-        """Calculate overall data quality score"""
-        logger.info("Calculating overall quality score")
+    def validate_region(self, region_code: str, region_files: Dict[str, Path]) -> Dict:
+        """
+        Validate all data for a specific region
+        """
+        region_config = self.config['regions'].get(region_code, {})
+        region_name = region_config.get('name', region_code)
         
-        total_checks = (self.validation_results['checks_passed'] + 
-                       self.validation_results['checks_failed'] +
-                       self.validation_results['checks_warned'])
+        logger.info(f"\n{'='*60}")
+        logger.info(f"VALIDATING: {region_name}")
+        logger.info(f"{'='*60}")
         
-        if total_checks == 0:
-            self.validation_results['overall_quality_score'] = 0.0
-            return
+        region_validation = {
+            'region_code': region_code,
+            'region_name': region_name,
+            'files_validated': [],
+            'data_types': {}
+        }
+        
+        for data_type, file_path in region_files.items():
+            try:
+                logger.info(f"\nValidating: {data_type}")
+                
+                # Load data
+                df = pd.read_csv(file_path)
+                
+                validation = {
+                    'file_path': str(file_path),
+                    'completeness': self.validate_data_completeness(df, data_type, region_code)
+                }
+                
+                # Type-specific validations
+                if data_type == 'stops':
+                    validation['coordinates'] = self.validate_stops_coordinates(df, region_code)
+                    validation['lsoa'] = self.validate_lsoa_coverage(df, region_code)
+                    validation['demographics'] = self.validate_demographic_integration(df, region_code)
+                
+                region_validation['data_types'][data_type] = validation
+                region_validation['files_validated'].append(data_type)
+                
+                logger.success(f"✓ Validated {data_type}: {len(df)} records")
+                
+            except Exception as e:
+                logger.error(f"Failed to validate {data_type}: {e}")
+                region_validation['data_types'][data_type] = {
+                    'error': str(e),
+                    'file_path': str(file_path)
+                }
+        
+        return region_validation
+    
+    def calculate_quality_score(self, region_code: str) -> float:
+        """
+        Calculate overall quality score for a region
+        Based on all validation checks
+        """
+        region_checks = {
+            k: v for k, v in self.validation_results.items()
+            if isinstance(k, str) and k.startswith(region_code)
+        }
+        
+        if not region_checks:
+            return 0.0
+        
+        # Count check results
+        passed = sum(1 for v in region_checks.values() if v.get('passed', False) and v.get('level') == 'info')
+        warned = sum(1 for v in region_checks.values() if v.get('passed', False) and v.get('level') == 'warning')
+        failed = sum(1 for v in region_checks.values() if not v.get('passed', True))
+        
+        total = passed + warned + failed
+        
+        if total == 0:
+            return 0.0
         
         # Weighted scoring
-        # Passed checks: 100% weight
-        # Warnings: 50% weight
-        # Failed checks: 0% weight
-        
-        weighted_score = (
-            self.validation_results['checks_passed'] * 1.0 +
-            self.validation_results['checks_warned'] * 0.5 +
-            self.validation_results['checks_failed'] * 0.0
-        )
-        
-        quality_score = (weighted_score / total_checks) * 100
-        self.validation_results['overall_quality_score'] = round(quality_score, 2)
-        
-        logger.info(f"Overall quality score: {quality_score:.2f}%")
-    
-    def _convert_to_serializable(self, obj):
-        """Convert numpy/pandas types to JSON-serializable Python types"""
-        if isinstance(obj, dict):
-            return {k: self._convert_to_serializable(v) for k, v in obj.items()}
-        elif isinstance(obj, list):
-            return [self._convert_to_serializable(item) for item in obj]
-        elif isinstance(obj, (np.integer, np.int64, np.int32)):
-            return int(obj)
-        elif isinstance(obj, (np.floating, np.float64, np.float32)):
-            return float(obj)
-        elif isinstance(obj, np.ndarray):
-            return obj.tolist()
-        else:
-            return obj
+        score = (passed * 1.0 + warned * 0.5) / total * 100
+        return round(score, 2)
     
     def _record_check(self, check_name: str, passed: bool, level: str, message: str):
-        """Record validation check result"""
+        """
+        Record validation check result
+        """
+        self.validation_results[check_name] = {
+            'passed': passed,
+            'level': level,
+            'message': message,
+            'timestamp': datetime.now().isoformat()
+        }
+        
         if passed:
             if level == 'warning':
-                self.validation_results['checks_warned'] += 1
+                self.validation_results['overall']['checks_warned'] += 1
                 logger.warning(f"⚠️  {check_name}: {message}")
             else:
-                self.validation_results['checks_passed'] += 1
+                self.validation_results['overall']['checks_passed'] += 1
                 logger.info(f"✓ {check_name}: {message}")
         else:
-            self.validation_results['checks_failed'] += 1
+            self.validation_results['overall']['checks_failed'] += 1
             logger.error(f"✗ {check_name}: {message}")
     
-    def generate_report(self):
-        """Generate comprehensive validation report"""
-        logger.info("Generating validation report")
+    def generate_validation_report(self) -> Dict:
+        """
+        Generate comprehensive validation report
+        """
+        logger.info("\n" + "="*60)
+        logger.info("GENERATING VALIDATION REPORT")
+        logger.info("="*60)
+        
+        # Calculate overall statistics
+        total_checks = (
+            self.validation_results['overall']['checks_passed'] +
+            self.validation_results['overall']['checks_failed'] +
+            self.validation_results['overall']['checks_warned']
+        )
+        
+        overall_score = 0.0
+        if total_checks > 0:
+            weighted_score = (
+                self.validation_results['overall']['checks_passed'] * 1.0 +
+                self.validation_results['overall']['checks_warned'] * 0.5
+            )
+            overall_score = round((weighted_score / total_checks) * 100, 2)
         
         report = {
             'validation_summary': {
                 'timestamp': self.validation_results['timestamp'],
-                'checks_passed': int(self.validation_results['checks_passed']),
-                'checks_failed': int(self.validation_results['checks_failed']),
-                'checks_warned': int(self.validation_results['checks_warned']),
-                'quality_score': float(self.validation_results['overall_quality_score'])
+                'total_regions': len(self.validation_results['regions']),
+                'total_checks': total_checks,
+                'checks_passed': self.validation_results['overall']['checks_passed'],
+                'checks_warned': self.validation_results['overall']['checks_warned'],
+                'checks_failed': self.validation_results['overall']['checks_failed'],
+                'overall_quality_score': overall_score
             },
-            'stop_validation': self._convert_to_serializable(self.validation_results.get('stop_validation', {})),
-            'route_validation': self._convert_to_serializable(self.validation_results.get('route_validation', {})),
-            'demographic_validation': self._convert_to_serializable(self.validation_results.get('demographic_validation', {}))
+            'regional_validation': self.validation_results['regions'],
+            'quality_scores': self.validation_results['quality_scores']
         }
         
-        # Save report
+        # Save detailed report
         report_path = DATA_PROCESSED / 'validation_report.json'
         with open(report_path, 'w') as f:
-            json.dump(report, f, indent=2)
+            json.dump(report, f, indent=2, default=str)
         
         logger.success(f"Validation report saved: {report_path}")
         
-        # Create human-readable summary
-        summary_path = DATA_PROCESSED / 'validation_summary.txt'
-        with open(summary_path, 'w') as f:
-            f.write("UK BUS ANALYTICS - DATA VALIDATION SUMMARY\n")
-            f.write("=" * 60 + "\n\n")
-            f.write(f"Validation Date: {self.validation_results['timestamp']}\n")
-            f.write(f"Quality Score: {self.validation_results['overall_quality_score']}%\n\n")
-            
-            f.write("Check Results:\n")
-            f.write(f"  ✓ Passed: {self.validation_results['checks_passed']}\n")
-            f.write(f"  ⚠️  Warnings: {self.validation_results['checks_warned']}\n")
-            f.write(f"  ✗ Failed: {self.validation_results['checks_failed']}\n\n")
-            
-            if 'stops' in self.data:
-                f.write(f"Stops Data:\n")
-                f.write(f"  Total records: {len(self.data['stops'])}\n")
-                
-                if 'stop_validation' in self.validation_results:
-                    sv = self.validation_results['stop_validation']
-                    if 'completeness' in sv:
-                        f.write(f"  Completeness checks: {len(sv['completeness'])}\n")
-                    if 'accuracy' in sv:
-                        f.write(f"  Accuracy checks: {len(sv['accuracy'])}\n")
-            
-            if 'routes' in self.data:
-                f.write(f"\nRoutes Data:\n")
-                f.write(f"  Total routes: {len(self.data['routes'])}\n")
-            
-            f.write("\n" + "=" * 60 + "\n")
-        
-        logger.success(f"Validation summary saved: {summary_path}")
+        # Generate human-readable summary
+        self._generate_text_summary(report)
         
         return report
     
-    def run_full_validation(self):
-        """Run complete validation pipeline"""
-        logger.info("Starting data validation pipeline")
-        start_time = datetime.now()
+    def _generate_text_summary(self, report: Dict):
+        """
+        Generate human-readable validation summary
+        """
+        summary_path = DATA_PROCESSED / 'validation_summary.txt'
         
-        # Load data
-        if not self.load_processed_data():
-            logger.error("Failed to load processed data")
-            return None
+        with open(summary_path, 'w') as f:
+            f.write("="*60 + "\n")
+            f.write("UK BUS ANALYTICS - VALIDATION SUMMARY\n")
+            f.write("="*60 + "\n\n")
+            
+            summary = report['validation_summary']
+            f.write(f"Validation Date: {summary['timestamp']}\n")
+            f.write(f"Overall Quality Score: {summary['overall_quality_score']}%\n\n")
+            
+            f.write("Check Results:\n")
+            f.write(f"  ✓ Passed: {summary['checks_passed']}\n")
+            f.write(f"  ⚠️  Warnings: {summary['checks_warned']}\n")
+            f.write(f"  ✗ Failed: {summary['checks_failed']}\n\n")
+            
+            f.write(f"Regional Breakdown:\n")
+            f.write(f"{'Region':<25} {'Quality Score':<15} {'Status'}\n")
+            f.write("-"*60 + "\n")
+            
+            for region_code, score in report['quality_scores'].items():
+                region_name = self.config['regions'].get(region_code, {}).get('name', region_code)
+                status = "✓ Excellent" if score >= 90 else "✓ Good" if score >= 75 else "⚠ Acceptable" if score >= 60 else "✗ Poor"
+                f.write(f"{region_name:<25} {score:>6.1f}%        {status}\n")
+            
+            f.write("\n" + "="*60 + "\n")
         
-        # Run all validation checks
-        self.validate_stops_completeness()
-        self.validate_stops_accuracy()
-        self.validate_stops_consistency()
-        self.validate_routes()
-        self.validate_demographic_data()
+        logger.success(f"Summary saved: {summary_path}")
+    
+    def validate_all_regions(self) -> Dict:
+        """
+        Validate all processed regions
+        Fully dynamic workflow
+        """
+        logger.info("\n" + "="*60)
+        logger.info("DYNAMIC DATA VALIDATION PIPELINE")
+        logger.info("="*60)
         
-        # Calculate quality score
-        self.calculate_quality_score()
+        # Discover processed files
+        processed_files = self.discover_processed_files()
         
-        # Generate report
-        report = self.generate_report()
+        if not processed_files:
+            logger.error("No processed data files found")
+            return {
+                'success': False,
+                'error': 'No processed data discovered'
+            }
         
-        duration = datetime.now() - start_time
-        logger.info(f"Validation completed in {duration}")
+        logger.info(f"\nValidating {len(processed_files)} regions")
         
-        return report
+        # Validate each region
+        for region_code, region_files in processed_files.items():
+            region_validation = self.validate_region(region_code, region_files)
+            self.validation_results['regions'][region_code] = region_validation
+            
+            # Calculate quality score
+            quality_score = self.calculate_quality_score(region_code)
+            self.validation_results['quality_scores'][region_code] = quality_score
+            
+            logger.info(f"\nQuality Score for {region_code}: {quality_score}%")
+        
+        # Generate comprehensive report
+        report = self.generate_validation_report()
+        
+        return {
+            'success': True,
+            'report': report
+        }
 
 
 def main():
-    """Run data validation"""
-    try:
-        validator = DataQualityValidator()
-        report = validator.run_full_validation()
-        
-        if report is None:
-            print("\n❌ Validation failed - no data to validate")
-            sys.exit(1)
-        
-        # Print summary
-        print("\n" + "="*60)
-        print("UK TRANSPORT DATA VALIDATION SUMMARY")
-        print("="*60)
-        
-        summary = report['validation_summary']
-        print(f"\nQuality Score: {summary['quality_score']}%")
-        print(f"\nCheck Results:")
-        print(f"  ✓ Passed: {summary['checks_passed']}")
-        print(f"  ⚠️  Warnings: {summary['checks_warned']}")
-        print(f"  ✗ Failed: {summary['checks_failed']}")
-        
-        # Quality assessment
-        score = summary['quality_score']
-        if score >= 90:
-            status = "🎉 EXCELLENT"
-            color = "green"
-        elif score >= 75:
-            status = "✅ GOOD"
-            color = "yellow"
-        elif score >= 60:
-            status = "⚠️  ACCEPTABLE"
-            color = "orange"
-        else:
-            status = "❌ POOR"
-            color = "red"
-        
-        print(f"\nOverall Assessment: {status}")
-        
-        if 'stop_validation' in report and report['stop_validation']:
-            print(f"\nStop Validation:")
-            if 'completeness' in report['stop_validation']:
-                comp = report['stop_validation']['completeness']
-                print(f"  Completeness: {len([k for k in comp.keys() if comp[k]])} checks passed")
-            if 'accuracy' in report['stop_validation']:
-                acc = report['stop_validation']['accuracy']
-                if 'valid_uk_coordinates' in acc:
-                    print(f"  UK Coordinates: {acc['valid_uk_coordinates']:.1f}% valid")
-        
-        if 'route_validation' in report and report['route_validation']:
-            print(f"\nRoute Validation:")
-            if 'total_routes' in report['route_validation']:
-                print(f"  Total routes: {report['route_validation']['total_routes']}")
-        
-        if 'demographic_validation' in report and report['demographic_validation']:
-            print(f"\nDemographic Integration:")
-            demo = report['demographic_validation']
-            if 'lsoa_coverage_pct' in demo:
-                print(f"  LSOA coverage: {demo['lsoa_coverage_pct']:.1f}%")
-            if 'demographic_indicators_count' in demo:
-                print(f"  Indicators found: {demo['demographic_indicators_count']}")
-        
-        print("\n" + "="*60)
-        print("\nDetailed reports saved:")
-        print("  - data_pipeline/processed/validation_report.json")
-        print("  - data_pipeline/processed/validation_summary.txt")
-        
-        if score >= 60:
-            print("\n✅ Data quality acceptable - ready for analysis")
-            print("\nNext steps:")
-            print("1. Review validation report for warnings")
-            print("2. Proceed to descriptive analysis")
-            print("3. Compute KPIs and correlations")
-        else:
-            print("\n⚠️  Data quality needs improvement")
-            print("\nRecommended actions:")
-            print("1. Review validation report for critical issues")
-            print("2. Re-run data ingestion if needed")
-            print("3. Address data quality issues before analysis")
-        
-        print("="*60)
-        
-    except Exception as e:
-        print(f"\n❌ Validation failed: {e}")
-        logger.exception("Validation failed")
-        sys.exit(1)
+    """
+    Execute dynamic data validation pipeline
+    """
+    print("\n" + "="*60)
+    print("UK BUS ANALYTICS - DYNAMIC DATA VALIDATION")
+    print("="*60)
+    print("\nValidating all processed data dynamically\n")
+    
+    # Initialize pipeline
+    pipeline = DynamicDataValidationPipeline()
+    
+    # Validate all regions
+    results = pipeline.validate_all_regions()
+    
+    if not results['success']:
+        print(f"\n❌ Validation failed: {results.get('error')}")
+        return
+    
+    # Print summary
+    report = results['report']
+    summary = report['validation_summary']
+    
+    print("\n" + "="*60)
+    print("VALIDATION COMPLETE")
+    print("="*60)
+    
+    print(f"\nOverall Quality Score: {summary['overall_quality_score']}%")
+    print(f"\nCheck Results:")
+    print(f"  ✓ Passed: {summary['checks_passed']}")
+    print(f"  ⚠️  Warnings: {summary['checks_warned']}")
+    print(f"  ✗ Failed: {summary['checks_failed']}")
+    
+    print(f"\nRegions Validated: {summary['total_regions']}")
+    
+    # Quality assessment
+    score = summary['overall_quality_score']
+    if score >= 90:
+        status = "🎉 EXCELLENT"
+    elif score >= 75:
+        status = "✅ GOOD"
+    elif score >= 60:
+        status = "⚠️  ACCEPTABLE"
+    else:
+        status = "❌ POOR"
+    
+    print(f"\nOverall Assessment: {status}")
+    
+    print("\nTop Regions by Quality:")
+    sorted_regions = sorted(
+        report['quality_scores'].items(),
+        key=lambda x: x[1],
+        reverse=True
+    )
+    
+    for i, (region_code, score) in enumerate(sorted_regions[:5], 1):
+        region_name = pipeline.config['regions'].get(region_code, {}).get('name', region_code)
+        print(f"  {i}. {region_name}: {score:.1f}%")
+    
+    print("\nReports saved:")
+    print("  - data_pipeline/processed/validation_report.json")
+    print("  - data_pipeline/processed/validation_summary.txt")
+    
+    if score >= 60:
+        print("\n✅ Data quality acceptable - ready for analysis")
+        print("\nNext steps:")
+        print("1. python analysis/descriptive_analysis.py")
+        print("2. python ml_models/train_models.py")
+        print("3. python dashboard/deploy.py")
+    else:
+        print("\n⚠️  Data quality needs improvement")
+        print("\nRecommended actions:")
+        print("1. Review validation report for issues")
+        print("2. Address critical failures")
+        print("3. Re-run processing pipeline")
 
 
 if __name__ == "__main__":

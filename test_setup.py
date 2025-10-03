@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 
 def test_environment():
     """Test that all dependencies are working"""
-    print("🔧 Testing environment setup...")
+    print(" Testing environment setup...")
     
     # Test imports
     try:
@@ -19,18 +19,18 @@ def test_environment():
         import requests
         from loguru import logger
         from tenacity import retry
-        print("✅ All required packages imported successfully")
+        print(" All required packages imported successfully")
     except ImportError as e:
-        print(f"❌ Import error: {e}")
+        print(f" Import error: {e}")
         return False
     
     # Test .env file
     load_dotenv()
     api_key = os.getenv('BODS_API_KEY')
     if api_key and api_key != 'your_actual_bods_api_key_here':
-        print("✅ BODS API key found")
+        print(" BODS API key found")
     else:
-        print("❌ BODS API key not set or still placeholder")
+        print(" BODS API key not set or still placeholder")
         print("   Edit your .env file with: BODS_API_KEY=your_actual_key")
         return False
     
@@ -46,16 +46,16 @@ def test_environment():
     
     for dir_path in expected_dirs:
         if Path(dir_path).exists():
-            print(f"✅ Directory exists: {dir_path}")
+            print(f" Directory exists: {dir_path}")
         else:
-            print(f"❌ Missing directory: {dir_path}")
+            print(f" Missing directory: {dir_path}")
             return False
     
     return True
 
 def test_api_connection():
     """Test BODS API connection"""
-    print("\n🌐 Testing BODS API connection...")
+    print("\n Testing BODS API connection...")
     
     load_dotenv()
     api_key = os.getenv('BODS_API_KEY')
@@ -81,23 +81,23 @@ def test_api_connection():
         
         if response.status_code == 200:
             data = response.json()
-            print(f"✅ BODS API connected successfully")
+            print(f" BODS API connected successfully")
             print(f"   Found {data.get('count', 0)} datasets available")
             return True
         elif response.status_code == 401:
-            print("❌ BODS API authentication failed - check your API key")
+            print(" BODS API authentication failed - check your API key")
             return False
         else:
-            print(f"❌ BODS API returned status code: {response.status_code}")
+            print(f" BODS API returned status code: {response.status_code}")
             return False
             
     except requests.exceptions.RequestException as e:
-        print(f"❌ BODS API connection failed: {e}")
+        print(f" BODS API connection failed: {e}")
         return False
 
 def test_ons_connection():
     """Test ONS API connection"""
-    print("\n📊 Testing ONS connection...")
+    print("\n Testing ONS connection...")
     
     try:
         # Test with ONS API
@@ -108,7 +108,7 @@ def test_ons_connection():
         )
         
         if response.status_code == 200:
-            print("✅ ONS API connected successfully")
+            print(" ONS API connected successfully")
             return True
         else:
             print(f"⚠️ ONS API returned status code: {response.status_code}")
@@ -116,12 +116,12 @@ def test_ons_connection():
             return True  # Don't fail on this
             
     except requests.exceptions.RequestException as e:
-        print(f"⚠️ ONS API connection issue: {e}")
+        print(f" ONS API connection issue: {e}")
         print("   This is often OK - we have direct download URLs as backup")
         return True  # Don't fail on this
 
 if __name__ == "__main__":
-    print("🚀 UK Bus Analytics - Environment Test")
+    print(" UK Bus Analytics - Environment Test")
     print("=" * 50)
     print("Script is running...")  # Add this to confirm execution
     
@@ -131,11 +131,11 @@ if __name__ == "__main__":
     
     print("\n" + "=" * 50)
     if env_ok and api_ok:
-        print("🎉 All tests passed! Ready to run data ingestion")
+        print(" All tests passed! Ready to run data ingestion")
         print("\nNext steps:")
         print("1. Run: python data_pipeline/01_data_ingestion.py")
         print("2. Check logs/ directory for detailed output")
         print("3. Verify data in data_pipeline/raw/ directories")
     else:
-        print("❌ Some tests failed. Fix the issues above before proceeding.")
+        print(" Some tests failed. Fix the issues above before proceeding.")
         sys.exit(1)

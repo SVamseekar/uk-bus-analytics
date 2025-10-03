@@ -1,0 +1,224 @@
+regions:
+  north_east:
+    enabled: true
+    name: North East England
+    major_cities:
+      - Newcastle
+      - Sunderland
+      - Middlesbrough
+      - Durham
+    lsoa_prefix: E01
+    max_datasets: 10
+    priority: medium
+    
+  north_west:
+    enabled: true
+    name: North West England
+    major_cities:
+      - Manchester
+      - Liverpool
+      - Preston
+      - Blackpool
+      - Bolton
+    lsoa_prefix: E01
+    max_datasets: 15
+    priority: high
+    
+  yorkshire:
+    enabled: true
+    name: Yorkshire and Humber
+    major_cities:
+      - Leeds
+      - Sheffield
+      - Bradford
+      - Hull
+      - York
+    lsoa_prefix: E01
+    max_datasets: 12
+    priority: high
+    
+  east_midlands:
+    enabled: true
+    name: East Midlands
+    major_cities:
+      - Nottingham
+      - Derby
+      - Leicester
+      - Lincoln
+      - Northampton
+    lsoa_prefix: E01
+    max_datasets: 10
+    priority: high
+    
+  west_midlands:
+    enabled: true
+    name: West Midlands
+    major_cities:
+      - Birmingham
+      - Coventry
+      - Wolverhampton
+      - Dudley
+      - Solihull
+    lsoa_prefix: E01
+    max_datasets: 15
+    priority: high
+    
+  east_england:
+    enabled: true
+    name: East of England
+    major_cities:
+      - Norwich
+      - Cambridge
+      - Ipswich
+      - Peterborough
+      - Luton
+    lsoa_prefix: E01
+    max_datasets: 10
+    priority: medium
+    
+  london:
+    enabled: true
+    name: Greater London
+    major_cities:
+      - London
+    lsoa_prefix: E01
+    max_datasets: 20
+    priority: critical
+    special_handling: tfl_unified
+    
+  south_east:
+    enabled: true
+    name: South East England
+    major_cities:
+      - Brighton
+      - Reading
+      - Oxford
+      - Southampton
+      - Portsmouth
+    lsoa_prefix: E01
+    max_datasets: 12
+    priority: high
+    
+  south_west:
+    enabled: true
+    name: South West England
+    major_cities:
+      - Bristol
+      - Plymouth
+      - Bournemouth
+      - Exeter
+      - Swindon
+    lsoa_prefix: E01
+    max_datasets: 10
+    priority: medium
+
+demographic_sources:
+  imd_2019:
+    enabled: true
+    name: Index of Multiple Deprivation 2019
+    source: arcgis
+    url: https://www.arcgis.com/sharing/rest/content/items/80592949bebd4390b2cbe29159a75ef4/data
+    questions_addressed:
+      - D24
+      - D30
+      - F37
+      - G43
+      - G50
+    priority: critical
+    
+  population_2021:
+    enabled: true
+    name: Census 2021 Population by LSOA
+    source: nomis
+    dataset_id: NM_2010_1
+    geography: TYPE297
+    time: "2021"
+    questions_addressed:
+      - A1
+      - A2
+      - A3
+      - D24
+      - E32
+    priority: critical
+    
+  income_2022:
+    enabled: true
+    name: Median Income by LSOA
+    source: nomis
+    dataset_id: NM_30_1
+    geography: TYPE297
+    time: latest
+    questions_addressed:
+      - D24
+      - D28
+      - I55
+      - I56
+    priority: high
+    
+  unemployment_2024:
+    enabled: true
+    name: Unemployment Rate by LSOA
+    source: nomis
+    dataset_id: NM_162_1
+    geography: TYPE297
+    time: latest
+    questions_addressed:
+      - D25
+      - B14
+      - H52
+    priority: high
+    
+  car_ownership:
+    enabled: true
+    name: Car Van Ownership 2021
+    source: nomis
+    dataset_id: NM_2027_1
+    geography: TYPE297
+    time: "2021"
+    questions_addressed:
+      - D28
+    priority: medium
+    
+  age_structure:
+    enabled: true
+    name: Age Structure by LSOA
+    source: nomis
+    dataset_id: NM_2010_1
+    geography: TYPE297
+    measures: "20100"
+    time: "2021"
+    questions_addressed:
+      - D27
+    priority: medium
+    
+  schools_2024:
+    enabled: true
+    name: UK Schools Database
+    source: manual
+    url: https://get-information-schools.service.gov.uk/Downloads
+    instructions: Download Establishment fields CSV with postcodes
+    questions_addressed:
+      - C22
+      - D29
+      - F39
+      - H51
+    priority: high
+    
+  business_counts:
+    enabled: true
+    name: Business Enterprises by LSOA
+    source: nomis
+    dataset_id: NM_142_1
+    geography: TYPE297
+    time: latest
+    questions_addressed:
+      - I55
+    priority: medium
+
+ingestion_settings:
+  parallel_downloads: 3
+  retry_attempts: 3
+  timeout_seconds: 300
+  cache_duration_days: 7
+  validate_downloads: true
+  min_file_size_bytes: 1000
