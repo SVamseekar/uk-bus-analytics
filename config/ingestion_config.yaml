@@ -143,11 +143,9 @@ demographic_sources:
     
   income_2022:
     enabled: true
-    name: Median Income by LSOA
-    source: nomis
-    dataset_id: NM_30_1
-    geography: TYPE297
-    time: latest
+    name: Economic Activity Census 2021 (Latest Available)
+    source: direct_download
+    url: "https://www.ons.gov.uk/file?uri=/datasets/ts066/editions/2021/versions/3/observations.csv"
     questions_addressed:
       - D24
       - D28
@@ -170,11 +168,9 @@ demographic_sources:
     
   car_ownership:
     enabled: true
-    name: Car Van Ownership 2021
-    source: nomis
-    dataset_id: NM_2027_1
-    geography: TYPE297
-    time: "2021"
+    name: Car Van Ownership Census 2021 (Latest Available)
+    source: direct_download
+    url: "https://www.ons.gov.uk/file?uri=/datasets/ts045/editions/2021/versions/3/observations.csv"
     questions_addressed:
       - D28
     priority: medium
@@ -206,11 +202,9 @@ demographic_sources:
     
   business_counts:
     enabled: true
-    name: Business Enterprises by LSOA
-    source: nomis
-    dataset_id: NM_142_1
-    geography: TYPE297
-    time: latest
+    name: UK Business Counts 2024 (Latest Available)
+    source: direct_download
+    url: "https://www.ons.gov.uk/file?uri=/businessindustryandtrade/business/activitysizeandlocation/datasets/ukbusinesscountslocalunitsby4digitsicindustryandemploymentsizeband/current/ukbc24lsoa.xlsx"
     questions_addressed:
       - I55
     priority: medium

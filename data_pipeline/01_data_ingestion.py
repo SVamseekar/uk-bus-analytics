@@ -214,7 +214,10 @@ class DynamicDataIngestionPipeline:
             return None
         
         try:
-            return BODSClient(api_key)
+            return BODSClient(
+                base_url=API_ENDPOINTS['bods']['base_url'],
+                api_key=api_key
+            )
         except Exception as e:
             logger.error(f"Failed to initialize BODS client: {e}")
             return None
@@ -259,21 +262,34 @@ class DynamicDataIngestionPipeline:
             failed = 0
             
             for i, dataset in enumerate(datasets.get('results', [])[:region_config.get('max_datasets', 10)], 1):
-                dataset_id = dataset.get('id')
-                dataset_name = dataset.get('name', 'Unknown')
-                
+                dataset_id = dataset.get('id', f'dataset_{i}')
+                dataset_name = dataset.get('name', f'Dataset_{i}')
+                operator_name = dataset.get('operatorName', 'Unknown_Operator')
+
+                # Clean filename
+                safe_name = f"{operator_name}_{dataset_id}".replace(' ', '_').replace('/', '_')[:50]
+
                 logger.info(f"\nDataset {i}: {dataset_name}")
-                
+                logger.info(f"  Operator: {operator_name}")
+                logger.info(f"  ID: {dataset_id}")
+
                 try:
-                    output_file = region_dir / f"dataset_{dataset_id}.zip"
-                    
-                    if self.bods_client.download_dataset(dataset_id, str(output_file)):
+                    dataset_url = dataset.get('url')
+                    if not dataset_url:
+                        logger.warning(f"No URL for dataset: {dataset_name}")
+                        failed += 1
+                        continue
+
+                    output_file = region_dir / f"{safe_name}.zip"
+
+                    logger.info(f"  Downloading from: {dataset_url}")
+                    if self.bods_client.download_dataset_file(dataset_url, str(output_file)):
                         downloaded += 1
                         logger.success(f"✓ Downloaded: {dataset_name}")
                     else:
                         failed += 1
                         logger.warning(f"✗ Failed: {dataset_name}")
-                        
+
                 except Exception as e:
                     logger.error(f"Failed to download dataset {i}: {e}")
                     failed += 1
@@ -374,37 +390,43 @@ class DynamicDataIngestionPipeline:
                 logger.info(f"  Geography: {geography}")
                 logger.info(f"  Time: {time_period}")
                 
-                # CORRECT NOMIS API URL FORMAT
+                # WORKING NOMIS API URL FORMAT
                 url = f"https://www.nomisweb.co.uk/api/v01/dataset/{dataset_id}.data.csv"
-                
-                # REPLACE WITH:
-                # Special handling for specific datasets
-                if dataset_id == 'NM_30_1':  # Income dataset
-                    # Income dataset needs specific cell/measure parameters
-                    params = {
-                        'geography': geography,
-                        'date': 'latest',
-                        'measures': '20100',  # Median income measure
-                        'select': 'geography_code,obs_value',
-                        'recordlimit': 0
-                    }
-                elif dataset_id == 'NM_2027_1':  # Car ownership
-                    # Car ownership needs specific vehicle measures
-                    params = {
-                        'geography': geography,
-                        'date': '2021',
-                        'c2021_carvan_5': '0...5',  # All car ownership categories
-                        'measures': '20100',
-                        'recordlimit': 0
-                    }
+
+                # Base parameters that work for ALL datasets
+                params = {
+                    'geography': geography,
+                    'select': 'geography_code,geography_name,obs_value,date_name',
+                    'recordlimit': 0  # No limit - get all data
+                }
+
+                # Dataset-specific configurations
+                if dataset_id == 'NM_2010_1':  # Population dataset
+                    params['time'] = '2021'
+                    params['select'] = 'geography_code,geography_name,obs_value,c_age_name,gender_name'
+
+                elif dataset_id == 'NM_2080_1':  # Economic Activity Census 2021 (Latest)
+                    params['time'] = '2021'
+                    params['select'] = 'geography_code,geography_name,obs_value'
+
+                elif dataset_id == 'NM_162_1':  # Unemployment dataset
+                    params['time'] = '2024'
+                    params['select'] = 'geography_code,geography_name,obs_value'
+
+                elif dataset_id == 'NM_2027_1':  # Car ownership (Census 2021)
+                    params['time'] = '2021'
+                    params['select'] = 'geography_code,geography_name,obs_value'
+                    params['c2021_carvan_5'] = '0...5'  # All car ownership categories
+
+                elif dataset_id == 'NM_189_1':  # Business Register Employment Survey 2024 (Latest)
+                    params['time'] = '2024'
+                    params['select'] = 'geography_code,geography_name,obs_value'
+
                 else:
-                    # Standard parameters for other datasets
-                    params = {
-                        'geography': geography,
-                        'date': 'latest' if time_period == 'latest' else time_period,
-                        'recordlimit': 0
-                    }
-                
+                    # Default for any other dataset
+                    params['time'] = 'latest' if time_period == 'latest' else time_period
+
+                # Always add measures if specified in config
                 if measures:
                     params['measures'] = measures
                 
@@ -496,6 +518,123 @@ class DynamicDataIngestionPipeline:
                 
                 return False
                         
+            elif source_type == 'ons_api':
+                # Direct ONS file downloads
+                url = config.get('url')
+                if not url:
+                    logger.error(f"No URL provided for ONS API dataset: {dataset_key}")
+                    return False
+
+                logger.info(f"  Downloading from ONS: {url}")
+                response = requests.get(url, timeout=300, stream=True)
+
+                if response.status_code == 200:
+                    # Handle different file types
+                    content_type = response.headers.get('content-type', '').lower()
+
+                    if 'excel' in content_type or url.endswith('.xlsx'):
+                        # XLSX file
+                        temp_path = output_path.with_suffix('.xlsx')
+                        with open(temp_path, 'wb') as f:
+                            for chunk in response.iter_content(chunk_size=8192):
+                                if chunk:
+                                    f.write(chunk)
+
+                        # Convert XLSX to CSV (basic conversion)
+                        try:
+                            import openpyxl
+                            wb = openpyxl.load_workbook(temp_path)
+                            ws = wb.active
+
+                            with open(output_path, 'w', newline='', encoding='utf-8') as csvfile:
+                                import csv
+                                writer = csv.writer(csvfile)
+                                for row in ws.iter_rows(values_only=True):
+                                    if any(cell is not None for cell in row):
+                                        writer.writerow(row)
+
+                            temp_path.unlink()  # Remove temp XLSX
+                            logger.success(f"✓ {config['name']}: Converted XLSX to CSV")
+
+                        except ImportError:
+                            logger.warning(f"openpyxl not available, keeping as XLSX: {temp_path}")
+                            output_path = temp_path
+
+                    else:
+                        # CSV or other text format
+                        with open(output_path, 'wb') as f:
+                            for chunk in response.iter_content(chunk_size=8192):
+                                if chunk:
+                                    f.write(chunk)
+                        logger.success(f"✓ {config['name']}: {len(response.content)} bytes")
+
+                    self.stats['demographic_datasets'].append(dataset_key)
+                    return True
+                else:
+                    logger.error(f"✗ {config['name']}: HTTP {response.status_code}")
+                    return False
+
+            elif source_type == 'direct_download':
+                # Direct file downloads from ONS or other sources
+                url = config.get('url')
+                if not url:
+                    logger.error(f"No URL provided for direct download dataset: {dataset_key}")
+                    return False
+
+                logger.info(f"  Direct download from: {url}")
+                response = requests.get(url, timeout=300, stream=True)
+
+                if response.status_code == 200:
+                    total_size = int(response.headers.get('content-length', 0))
+
+                    if url.endswith('.xlsx'):
+                        # Handle Excel files
+                        temp_path = output_path.with_suffix('.xlsx')
+                        with open(temp_path, 'wb') as f:
+                            for chunk in response.iter_content(chunk_size=8192):
+                                if chunk:
+                                    f.write(chunk)
+
+                        # Convert to CSV if openpyxl available
+                        try:
+                            import openpyxl
+                            wb = openpyxl.load_workbook(temp_path)
+                            ws = wb.active
+
+                            with open(output_path, 'w', newline='', encoding='utf-8') as csvfile:
+                                import csv
+                                writer = csv.writer(csvfile)
+                                for row in ws.iter_rows(values_only=True):
+                                    if any(cell is not None for cell in row):
+                                        writer.writerow(row)
+
+                            temp_path.unlink()
+                            file_size = output_path.stat().st_size
+                            logger.success(f"✓ {config['name']}: {file_size} bytes (converted from XLSX)")
+
+                        except ImportError:
+                            logger.warning(f"openpyxl not available, keeping as XLSX: {temp_path}")
+                            output_path = temp_path
+                            file_size = temp_path.stat().st_size
+                            logger.success(f"✓ {config['name']}: {file_size} bytes (XLSX)")
+
+                    else:
+                        # Handle CSV and other text files
+                        with open(output_path, 'wb') as f:
+                            downloaded = 0
+                            for chunk in response.iter_content(chunk_size=8192):
+                                if chunk:
+                                    f.write(chunk)
+                                    downloaded += len(chunk)
+
+                        logger.success(f"✓ {config['name']}: {downloaded} bytes")
+
+                    self.stats['demographic_datasets'].append(dataset_key)
+                    return True
+                else:
+                    logger.error(f"✗ {config['name']}: HTTP {response.status_code}")
+                    return False
+
             elif source_type == 'arcgis':
                 # ArcGIS direct download
                 url = config.get('url')
@@ -665,50 +804,138 @@ class DynamicDataIngestionPipeline:
 
 def main():
     """
-    Execute dynamic data ingestion pipeline
+    Main function with CLI support for comprehensive automation
     """
+    import argparse
+
+    parser = argparse.ArgumentParser(description='UK Bus Analytics - Automated Data Ingestion Pipeline')
+    parser.add_argument('--data-type', choices=['transport', 'demographic', 'all'],
+                       default='all', help='Type of data to ingest')
+    parser.add_argument('--regions', type=str, default='all',
+                       help='Comma-separated list of regions or "all"')
+    parser.add_argument('--config', type=str,
+                       help='Path to configuration file')
+    parser.add_argument('--dry-run', action='store_true',
+                       help='Show what would be downloaded without actually downloading')
+    parser.add_argument('--max-datasets', type=int, default=None,
+                       help='Maximum datasets per region (for testing)')
+
+    args = parser.parse_args()
+
     print("\n" + "="*60)
     print("UK BUS ANALYTICS - DYNAMIC DATA INGESTION")
     print("="*60)
     print("\nFully configurable, no hardcoding")
     print("Scalable to all UK regions\n")
-    
+
     # Initialize pipeline
-    pipeline = DynamicDataIngestionPipeline()
-    
-    # Run full ingestion
-    results = pipeline.run_full_ingestion()
-    
-    # Print summary
+    config_path = Path(args.config) if args.config else None
+    pipeline = DynamicDataIngestionPipeline(config_path)
+
+    # Apply CLI overrides
+    if args.max_datasets:
+        for region in pipeline.config['regions'].values():
+            region['max_datasets'] = args.max_datasets
+
+    logger.info(f"🚀 Starting automated ingestion:")
+    logger.info(f"  - Data type: {args.data_type}")
+    logger.info(f"  - Regions: {args.regions}")
+    logger.info(f"  - Dry run: {args.dry_run}")
+
+    results = {'transport_results': {}, 'demographic_results': {}, 'success': True}
+
+    try:
+        # Execute based on data type
+        if args.data_type in ['transport', 'all']:
+            logger.info("\n" + "="*60)
+            logger.info("🚌 TRANSPORT DATA INGESTION")
+            logger.info("="*60)
+
+            if args.regions == 'all':
+                if not args.dry_run:
+                    results['transport_results'] = pipeline.ingest_all_transport_data()
+                else:
+                    logger.info("DRY RUN: Would download transport data for all regions")
+                    results['transport_results'] = {r: {'dry_run': True} for r in pipeline.config['regions']}
+            else:
+                regions = [r.strip() for r in args.regions.split(',')]
+                for region in regions:
+                    if region in pipeline.config['regions']:
+                        if not args.dry_run:
+                            results['transport_results'][region] = pipeline.ingest_transport_data_for_region(region)
+                        else:
+                            logger.info(f"DRY RUN: Would download transport data for {region}")
+                            results['transport_results'][region] = {'dry_run': True}
+                    else:
+                        logger.warning(f"❌ Unknown region: {region}")
+
+        if args.data_type in ['demographic', 'all']:
+            logger.info("\n" + "="*60)
+            logger.info("📊 DEMOGRAPHIC DATA INGESTION")
+            logger.info("="*60)
+
+            if not args.dry_run:
+                results['demographic_results'] = pipeline.ingest_all_demographic_data()
+            else:
+                logger.info("DRY RUN: Would download all demographic datasets")
+                results['demographic_results'] = {'dry_run': True}
+
+        # Generate final report
+        if not args.dry_run:
+            logger.info("\n" + "="*60)
+            logger.info("📋 GENERATING REPORT")
+            logger.info("="*60)
+            report = pipeline.generate_ingestion_report()
+            results['report'] = report
+
+    except Exception as e:
+        logger.error(f"💥 Pipeline failed: {e}")
+        results['success'] = False
+        raise
+
+    # Print comprehensive summary
     print("\n" + "="*60)
     print("INGESTION COMPLETE")
     print("="*60)
-    
-    transport = results['transport_results']
-    demographics = results['demographic_results']
-    
-    print(f"\nTransport Data:")
-    print(f"  Regions processed: {len(transport)}")
-    print(f"  Total datasets: {sum(r.get('datasets_downloaded', 0) for r in transport.values())}")
-    
-    print(f"\nDemographic Data:")
-    print(f"  Successful: {demographics['successful']}")
-    print(f"  Failed: {demographics['failed']}")
-    print(f"  Manual required: {demographics['manual_required']}")
-    
-    if results['report']['errors']:
-        print(f"\n⚠️  Errors encountered: {len(results['report']['errors'])}")
-        for error in results['report']['errors'][:5]:
-            print(f"  - {error}")
-    
-    if results['success']:
-        print("\n✅ Ingestion completed successfully")
+
+    if args.dry_run:
+        print("\n🔍 DRY RUN COMPLETED - No actual downloads performed")
     else:
-        print("\n⚠️  Ingestion completed with errors")
-    
-    print(f"\nNext steps:")
-    print("1. python data_pipeline/02_data_processing.py")
-    print("2. python data_pipeline/03_data_validation.py")
+        transport = results['transport_results']
+        demographics = results['demographic_results']
+
+        print(f"\n🚌 Transport Data:")
+        if isinstance(transport, dict):
+            total_regions = len(transport)
+            total_datasets = sum(r.get('datasets_downloaded', 0) for r in transport.values() if isinstance(r, dict))
+            total_failed = sum(r.get('datasets_failed', 0) for r in transport.values() if isinstance(r, dict))
+            print(f"  Regions processed: {total_regions}")
+            print(f"  Total datasets downloaded: {total_datasets}")
+            print(f"  Failed downloads: {total_failed}")
+
+        print(f"\n📊 Demographic Data:")
+        if isinstance(demographics, dict) and 'successful' in demographics:
+            print(f"  Successful: {demographics.get('successful', 0)}")
+            print(f"  Failed: {demographics.get('failed', 0)}")
+            print(f"  Manual required: {demographics.get('manual_required', 0)}")
+
+        if 'report' in results and results['report'].get('errors'):
+            print(f"\n⚠️  Errors encountered: {len(results['report']['errors'])}")
+            for error in results['report']['errors'][:5]:
+                print(f"  - {error}")
+
+    if results['success']:
+        print("\n✅ Automated ingestion pipeline completed successfully!")
+    else:
+        print("\n⚠️  Pipeline completed with errors")
+
+    if not args.dry_run:
+        print(f"\n🔄 Next steps:")
+        print("1. python data_pipeline/02_data_processing.py")
+        print("2. python data_pipeline/03_data_validation.py")
+        print("3. Review ingestion report: data_pipeline/raw/ingestion_report.json")
+
+    logger.success("🎉 Automation pipeline execution completed!")
 
 
 if __name__ == "__main__":
