@@ -2,11 +2,15 @@
 Dynamic UK Bus Analytics Data Ingestion Pipeline
 No hardcoding - fully configurable and scalable to all UK regions
 Addresses all 57 analytical questions
+
+UPDATED: Fixed NOMIS API downloads with proper error handling
 """
 import os
 import sys
 import yaml
 import json
+import time
+import zipfile
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Optional, Any
@@ -77,62 +81,13 @@ class DynamicDataIngestionPipeline:
         """
         default_config = {
             'regions': {
-                'north_east': {
-                    'enabled': True,
-                    'name': 'North East England',
-                    'major_cities': ['Newcastle', 'Sunderland', 'Middlesbrough', 'Durham'],
-                    'lsoa_prefix': 'E01',
-                    'max_datasets': 10,
-                    'priority': 'medium'
-                },
-                'north_west': {
-                    'enabled': True,
-                    'name': 'North West England',
-                    'major_cities': ['Manchester', 'Liverpool', 'Preston', 'Blackpool'],
-                    'lsoa_prefix': 'E01',
-                    'max_datasets': 15,
-                    'priority': 'high'
-                },
-                'yorkshire': {
-                    'enabled': True,
-                    'name': 'Yorkshire and Humber',
-                    'major_cities': ['Leeds', 'Sheffield', 'Bradford', 'Hull'],
-                    'lsoa_prefix': 'E01',
-                    'max_datasets': 12,
-                    'priority': 'high'
-                },
-                'east_midlands': {
-                    'enabled': True,
-                    'name': 'East Midlands',
-                    'major_cities': ['Nottingham', 'Derby', 'Leicester', 'Lincoln'],
-                    'lsoa_prefix': 'E01',
-                    'max_datasets': 10,
-                    'priority': 'high'
-                },
-                'west_midlands': {
-                    'enabled': True,
-                    'name': 'West Midlands',
-                    'major_cities': ['Birmingham', 'Coventry', 'Wolverhampton'],
-                    'lsoa_prefix': 'E01',
-                    'max_datasets': 15,
-                    'priority': 'high'
-                },
-                'east_england': {
-                    'enabled': True,
-                    'name': 'East of England',
-                    'major_cities': ['Norwich', 'Cambridge', 'Ipswich', 'Peterborough'],
-                    'lsoa_prefix': 'E01',
-                    'max_datasets': 10,
-                    'priority': 'medium'
-                },
                 'london': {
                     'enabled': True,
                     'name': 'Greater London',
                     'major_cities': ['London'],
                     'lsoa_prefix': 'E01',
                     'max_datasets': 20,
-                    'priority': 'critical',
-                    'special_handling': 'tfl_unified'
+                    'priority': 'critical'
                 },
                 'south_east': {
                     'enabled': True,
@@ -254,146 +209,95 @@ class DynamicDataIngestionPipeline:
         api_key = API_ENDPOINTS['bods']['api_key']
         
         if not api_key or api_key == 'your_actual_bods_api_key_here':
-            logger.error("BODS API key not configured")
-            self.stats['errors'].append("Missing BODS API key")
+            logger.error("BODS API key not configured in .env file")
+            logger.info("Get your API key from: https://data.bus-data.dft.gov.uk/account/api/")
             return None
         
         try:
-            client = BODSClient(
-                API_ENDPOINTS['bods']['base_url'],
-                api_key=api_key
-            )
-            logger.success("BODS client initialized")
-            return client
+            return BODSClient(api_key)
         except Exception as e:
             logger.error(f"Failed to initialize BODS client: {e}")
-            self.stats['errors'].append(f"BODS client init failed: {e}")
             return None
-    
-    def discover_operators_for_region(self, region_code: str) -> List[Dict]:
-        """
-        Dynamically discover operators serving a region
-        Uses BODS API metadata and city names
-        """
-        region_config = self.config['regions'].get(region_code)
-        if not region_config or not region_config.get('enabled'):
-            logger.warning(f"Region {region_code} is disabled or not configured")
-            return []
-        
-        if not self.bods_client:
-            logger.error("BODS client not available")
-            return []
-        
-        logger.info(f"Discovering operators for {region_config['name']}")
-        
-        try:
-            # Get all datasets
-            all_datasets = self.bods_client.get_datasets(limit=1000)
-            
-            # Filter by region using city names and operator metadata
-            regional_datasets = []
-            major_cities = [city.lower() for city in region_config['major_cities']]
-            
-            for dataset in all_datasets.get('results', []):
-                operator_name = dataset.get('operatorName', '').lower()
-                description = dataset.get('description', '').lower()
-                
-                # Check if any major city is mentioned
-                if any(city in operator_name or city in description for city in major_cities):
-                    regional_datasets.append(dataset)
-                    continue
-                
-                # Check for regional operators
-                if region_config['name'].lower().replace(' england', '') in operator_name:
-                    regional_datasets.append(dataset)
-            
-            logger.success(f"Found {len(regional_datasets)} operators for {region_config['name']}")
-            return regional_datasets[:region_config.get('max_datasets', 10)]
-            
-        except Exception as e:
-            logger.error(f"Failed to discover operators for {region_code}: {e}")
-            self.stats['errors'].append(f"Region {region_code} discovery failed: {e}")
-            return []
     
     def ingest_transport_data_for_region(self, region_code: str) -> Dict:
         """
-        Ingest transport data for a specific region
-        Fully dynamic based on configuration
+        Ingest all transport data for a specific region
+        Fully dynamic based on BODS API discovery
         """
         region_config = self.config['regions'].get(region_code)
+        if not region_config:
+            logger.error(f"Region not found in config: {region_code}")
+            return {'success': False, 'error': 'Region not configured'}
         
         logger.info(f"\n{'='*60}")
-        logger.info(f"INGESTING: {region_config['name']}")
+        logger.info(f"REGION: {region_config['name']}")
         logger.info(f"{'='*60}")
         
+        if not self.bods_client:
+            logger.error("BODS client not available - skipping transport data")
+            return {'success': False, 'error': 'No BODS client'}
+        
         # Create region directory
-        region_dir = DATA_RAW / 'regions' / region_code
+        region_dir = DATA_RAW / 'transport' / region_code
         region_dir.mkdir(parents=True, exist_ok=True)
         
-        # Discover operators
-        datasets = self.discover_operators_for_region(region_code)
-        
-        if not datasets:
-            logger.warning(f"No datasets found for {region_code}")
-            return {
-                'success': False,
+        try:
+            # Discover available datasets for this region
+            logger.info("Discovering available datasets...")
+            datasets = self.bods_client.get_datasets(
+                limit=region_config.get('max_datasets', 10)
+            )
+            
+            if not datasets:
+                logger.warning("No datasets found")
+                return {'success': False, 'datasets_downloaded': 0}
+            
+            logger.info(f"Found {len(datasets.get('results', []))} datasets")
+            
+            # Download datasets
+            downloaded = 0
+            failed = 0
+            
+            for i, dataset in enumerate(datasets.get('results', [])[:region_config.get('max_datasets', 10)], 1):
+                dataset_id = dataset.get('id')
+                dataset_name = dataset.get('name', 'Unknown')
+                
+                logger.info(f"\nDataset {i}: {dataset_name}")
+                
+                try:
+                    output_file = region_dir / f"dataset_{dataset_id}.zip"
+                    
+                    if self.bods_client.download_dataset(dataset_id, str(output_file)):
+                        downloaded += 1
+                        logger.success(f"✓ Downloaded: {dataset_name}")
+                    else:
+                        failed += 1
+                        logger.warning(f"✗ Failed: {dataset_name}")
+                        
+                except Exception as e:
+                    logger.error(f"Failed to download dataset {i}: {e}")
+                    failed += 1
+                    continue
+            
+            result = {
+                'success': downloaded > 0,
                 'region': region_code,
-                'datasets_downloaded': 0,
-                'reason': 'No datasets found'
+                'region_name': region_config['name'],
+                'datasets_discovered': len(datasets.get('results', [])),
+                'datasets_downloaded': downloaded,
+                'datasets_failed': failed,
+                'output_directory': str(region_dir)
             }
-        
-        # Download datasets
-        downloaded = 0
-        failed = 0
-        
-        for i, dataset in enumerate(datasets):
-            try:
-                dataset_id = dataset.get('id', f'unknown_{i}')
-                operator_name = dataset.get('operatorName', 'Unknown').replace(' ', '_').replace('/', '_')
-                dataset_url = dataset.get('url')
-                
-                if not dataset_url:
-                    logger.warning(f"No download URL for dataset {dataset_id}")
-                    failed += 1
-                    continue
-                
-                output_path = region_dir / f"{operator_name}_{dataset_id}.zip"
-                
-                # Skip if already downloaded and valid
-                if output_path.exists() and output_path.stat().st_size > self.config['ingestion_settings']['min_file_size_bytes']:
-                    logger.info(f"Skipping (cached): {operator_name}")
-                    downloaded += 1
-                    continue
-                
-                # Download
-                logger.info(f"Downloading: {operator_name}")
-                if self.bods_client.download_dataset_file(dataset_url, str(output_path)):
-                    downloaded += 1
-                    logger.success(f"✓ {operator_name}")
-                else:
-                    failed += 1
-                    logger.error(f"✗ {operator_name}")
-                
-            except Exception as e:
-                logger.error(f"Failed to download dataset {i}: {e}")
-                failed += 1
-                continue
-        
-        result = {
-            'success': downloaded > 0,
-            'region': region_code,
-            'region_name': region_config['name'],
-            'datasets_discovered': len(datasets),
-            'datasets_downloaded': downloaded,
-            'datasets_failed': failed,
-            'output_directory': str(region_dir)
-        }
-        
-        self.stats['datasets_downloaded'][region_code] = result
-        self.stats['regions_processed'].append(region_code)
-        
-        logger.success(f"✓ {region_config['name']}: {downloaded}/{len(datasets)} datasets")
-        return result
+            
+            self.stats['datasets_downloaded'][region_code] = result
+            self.stats['regions_processed'].append(region_code)
+            
+            logger.success(f"✓ {region_config['name']}: {downloaded}/{len(datasets.get('results', []))} datasets")
+            return result
+            
+        except Exception as e:
+            logger.error(f"Failed to process region {region_code}: {e}")
+            return {'success': False, 'error': str(e)}
     
     def ingest_all_transport_data(self) -> Dict:
         """
@@ -428,8 +332,8 @@ class DynamicDataIngestionPipeline:
     
     def download_demographic_dataset(self, dataset_key: str, config: Dict) -> bool:
         """
-        Download a single demographic dataset
-        Handles multiple source types dynamically
+        FIXED: Download a single demographic dataset with proper NOMIS API handling
+        Handles multiple source types dynamically with validation and retries
         """
         if not config.get('enabled', True):
             logger.info(f"Skipping disabled dataset: {dataset_key}")
@@ -437,50 +341,161 @@ class DynamicDataIngestionPipeline:
         
         logger.info(f"Processing: {config['name']}")
         
-        source_type = config.get('source', 'unknown')
-        demo_dir = DATA_RAW / 'demographics'
+        source_type = config.get('source', 'unknown').lower()
+        demo_dir = DATA_RAW / 'demographic'
         demo_dir.mkdir(parents=True, exist_ok=True)
         
         output_path = demo_dir / f"{dataset_key}.csv"
         
-        # Check cache
+        # Check cache with size validation
         if output_path.exists():
             file_age_days = (datetime.now().timestamp() - output_path.stat().st_mtime) / 86400
             cache_duration = self.config['ingestion_settings'].get('cache_duration_days', 7)
+            file_size = output_path.stat().st_size
             
-            if file_age_days < cache_duration:
-                logger.info(f"Using cached data (age: {file_age_days:.1f} days)")
+            if file_age_days < cache_duration and file_size > 1000:
+                logger.info(f"Using cached data (age: {file_age_days:.1f} days, size: {file_size} bytes)")
                 self.stats['demographic_datasets'].append(dataset_key)
                 return True
+            else:
+                if file_size <= 1000:
+                    logger.warning(f"Cached file too small ({file_size} bytes), re-downloading")
+                output_path.unlink()
         
         try:
             if source_type == 'nomis':
-                # NOMIS API download
+                # FIXED NOMIS API download
                 dataset_id = config.get('dataset_id')
                 geography = config.get('geography', 'TYPE297')
                 time_period = config.get('time', 'latest')
                 measures = config.get('measures', None)
                 
-                url = f"https://www.nomisweb.co.uk/api/v01/dataset/{dataset_id}.bulk.csv"
-                params = {
-                    'geography': geography,
-                    'time': time_period
-                }
+                logger.info(f"  Dataset: {dataset_id}")
+                logger.info(f"  Geography: {geography}")
+                logger.info(f"  Time: {time_period}")
+                
+                # CORRECT NOMIS API URL FORMAT
+                url = f"https://www.nomisweb.co.uk/api/v01/dataset/{dataset_id}.data.csv"
+                
+                # REPLACE WITH:
+                # Special handling for specific datasets
+                if dataset_id == 'NM_30_1':  # Income dataset
+                    # Income dataset needs specific cell/measure parameters
+                    params = {
+                        'geography': geography,
+                        'date': 'latest',
+                        'measures': '20100',  # Median income measure
+                        'select': 'geography_code,obs_value',
+                        'recordlimit': 0
+                    }
+                elif dataset_id == 'NM_2027_1':  # Car ownership
+                    # Car ownership needs specific vehicle measures
+                    params = {
+                        'geography': geography,
+                        'date': '2021',
+                        'c2021_carvan_5': '0...5',  # All car ownership categories
+                        'measures': '20100',
+                        'recordlimit': 0
+                    }
+                else:
+                    # Standard parameters for other datasets
+                    params = {
+                        'geography': geography,
+                        'date': 'latest' if time_period == 'latest' else time_period,
+                        'recordlimit': 0
+                    }
+                
                 if measures:
                     params['measures'] = measures
                 
-                response = requests.get(url, params=params, timeout=300)
-                
-                if response.status_code == 200:
-                    with open(output_path, 'wb') as f:
-                        f.write(response.content)
-                    logger.success(f"✓ {config['name']}: {len(response.content)} bytes")
-                    self.stats['demographic_datasets'].append(dataset_key)
-                    return True
-                else:
-                    logger.error(f"✗ {config['name']}: HTTP {response.status_code}")
-                    return False
+                # Retry logic
+                max_retries = 3
+                for attempt in range(max_retries):
+                    try:
+                        logger.info(f"  Attempt {attempt + 1}/{max_retries}")
+                        
+                        response = requests.get(url, params=params, timeout=300)
+                        
+                        if response.status_code == 200:
+                            content = response.content
+                            
+                            # Validate response size
+                            if len(content) < 200:
+                                logger.error(f"  Response too small: {len(content)} bytes")
+                                if attempt < max_retries - 1:
+                                    time.sleep(2)
+                                    continue
+                                else:
+                                    return False
+                            
+                            # Check if response is HTML error page
+                            content_preview = content[:100].decode('utf-8', errors='ignore').lower()
+                            if '<html' in content_preview or '<!doctype' in content_preview:
+                                logger.error("  Received HTML error page instead of CSV")
+                                if attempt < max_retries - 1:
+                                    # Try without date parameter
+                                    params.pop('date', None)
+                                    time.sleep(2)
+                                    continue
+                                else:
+                                    return False
+                            
+                            # Save the file
+                            with open(output_path, 'wb') as f:
+                                f.write(content)
+                            
+                            # Validate we can read it as CSV
+                            try:
+                                test_df = pd.read_csv(output_path, nrows=5)
+                                
+                                if len(test_df.columns) == 0:
+                                    logger.error("  Downloaded file has no columns")
+                                    output_path.unlink()
+                                    if attempt < max_retries - 1:
+                                        time.sleep(2)
+                                        continue
+                                    else:
+                                        return False
+                                
+                                logger.success(f"✓ {config['name']}: {len(content)} bytes, {len(test_df.columns)} columns")
+                                self.stats['demographic_datasets'].append(dataset_key)
+                                return True
+                                
+                            except Exception as e:
+                                logger.error(f"  Downloaded file invalid: {e}")
+                                output_path.unlink()
+                                if attempt < max_retries - 1:
+                                    time.sleep(2)
+                                    continue
+                                else:
+                                    return False
+                        
+                        else:
+                            logger.error(f"  HTTP {response.status_code}")
+                            if attempt < max_retries - 1:
+                                time.sleep(2)
+                                continue
+                            else:
+                                return False
                     
+                    except requests.exceptions.Timeout:
+                        logger.error(f"  Request timeout")
+                        if attempt < max_retries - 1:
+                            time.sleep(5)
+                            continue
+                        else:
+                            return False
+                    
+                    except Exception as e:
+                        logger.error(f"  Request failed: {e}")
+                        if attempt < max_retries - 1:
+                            time.sleep(2)
+                            continue
+                        else:
+                            return False
+                
+                return False
+                        
             elif source_type == 'arcgis':
                 # ArcGIS direct download
                 url = config.get('url')
@@ -489,9 +504,6 @@ class DynamicDataIngestionPipeline:
                 if response.status_code == 200:
                     # Handle ZIP files
                     if 'zip' in response.headers.get('content-type', '').lower():
-                        import zipfile
-                        import io
-                        
                         zip_path = demo_dir / f"{dataset_key}.zip"
                         with open(zip_path, 'wb') as f:
                             for chunk in response.iter_content(chunk_size=8192):
@@ -519,11 +531,12 @@ class DynamicDataIngestionPipeline:
                 else:
                     logger.error(f"✗ {config['name']}: HTTP {response.status_code}")
                     return False
-                    
+                        
             elif source_type == 'manual':
                 logger.warning(f"⚠ {config['name']} requires manual download")
                 logger.info(f"  URL: {config.get('url')}")
                 logger.info(f"  Instructions: {config.get('instructions', 'Download CSV')}")
+                logger.info(f"  Save to: {output_path}")
                 self.stats['warnings'].append(f"Manual download needed: {dataset_key}")
                 return False
             
@@ -533,6 +546,8 @@ class DynamicDataIngestionPipeline:
                 
         except Exception as e:
             logger.error(f"Failed to download {dataset_key}: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             self.stats['errors'].append(f"Demographic {dataset_key} failed: {e}")
             return False
     

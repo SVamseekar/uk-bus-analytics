@@ -7,6 +7,7 @@ Includes automated NaPTAN coordinate enrichment
 import sys
 import yaml
 import json
+import time
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
@@ -411,9 +412,22 @@ class DynamicDataProcessingPipeline:
         
         return stops_df
     
+    """
+    UPDATED METHOD for data_pipeline/02_data_processing.py
+
+    Replace the load_all_demographic_data method in the DynamicDataProcessingPipeline class
+    with this FIXED version that handles encoding issues and validates data properly.
+    """
+
     def load_all_demographic_data(self, demographic_files: Dict[str, Path]) -> Dict[str, pd.DataFrame]:
         """
-        Load all demographic datasets dynamically with encoding handling
+        FIXED: Load all demographic datasets with proper encoding handling
+        
+        Handles:
+        - Multiple encoding attempts (utf-8, latin-1, cp1252, iso-8859-1, windows-1252)
+        - Empty file detection
+        - NOMIS metadata row skipping
+        - Proper error reporting (no graceful skipping of required data)
         """
         logger.info("\n" + "="*60)
         logger.info("LOADING DEMOGRAPHIC DATA")
@@ -425,54 +439,128 @@ class DynamicDataProcessingPipeline:
             try:
                 logger.info(f"Loading: {dataset_key}")
                 
-                # Try multiple encodings for problematic files
+                # Validation 1: Check file exists
+                if not file_path.exists():
+                    error_msg = f"Required file not found: {file_path}"
+                    logger.error(error_msg)
+                    self.stats['processing_errors'].append({
+                        'dataset': dataset_key,
+                        'error': 'File not found'
+                    })
+                    raise FileNotFoundError(error_msg)
+                
+                # Validation 2: Check file size
+                file_size = file_path.stat().st_size
+                if file_size < 100:
+                    error_msg = f"File too small ({file_size} bytes): {dataset_key} - likely empty or corrupted"
+                    logger.error(error_msg)
+                    self.stats['processing_errors'].append({
+                        'dataset': dataset_key,
+                        'error': f'File too small ({file_size} bytes)'
+                    })
+                    raise ValueError(error_msg)
+                
+                # Try multiple encodings
                 df = None
-                for encoding in ['utf-8', 'latin-1', 'cp1252', 'iso-8859-1']:
+                successful_encoding = None
+                
+                encodings_to_try = ['utf-8', 'latin-1', 'cp1252', 'iso-8859-1', 'windows-1252']
+                
+                for encoding in encodings_to_try:
                     try:
-                        df = pd.read_csv(file_path, low_memory=False, encoding=encoding,
-                                       on_bad_lines='skip', engine='python')
+                        df = pd.read_csv(
+                            file_path, 
+                            low_memory=False, 
+                            encoding=encoding,
+                            on_bad_lines='skip',
+                            engine='python',
+                            encoding_errors='ignore',
+                            skip_blank_lines=True,
+                            skipinitialspace=True
+                        )
                         
-                        # Skip if empty
-                        if len(df) == 0:
-                            raise ValueError("Empty dataset")
+                        if df is None or len(df.columns) == 0 or len(df) == 0:
+                            continue
                         
-                        break
-                    except Exception as e:
-                        if encoding == 'iso-8859-1':  # Last attempt
-                            logger.error(f"Failed to load {dataset_key}: {e}")
-                            self.stats['processing_errors'].append({
-                                'dataset': dataset_key,
-                                'error': str(e)
-                            })
+                        # Clean NOMIS metadata rows if present
+                        if len(df) > 0:
+                            first_row_text = ' '.join([str(val).lower() for val in df.iloc[0].values if pd.notna(val)])
+                            metadata_indicators = ['source:', 'contact:', 'copyright', 'nomis', 'note:', 'metadata']
+                            
+                            if any(indicator in first_row_text for indicator in metadata_indicators):
+                                # Find where actual data starts
+                                for idx in range(min(20, len(df))):
+                                    row_text = ' '.join([str(val).lower() for val in df.iloc[idx].values if pd.notna(val)])
+                                    
+                                    if not any(indicator in row_text for indicator in metadata_indicators):
+                                        logger.info(f"  Skipping {idx} metadata rows")
+                                        df = df.iloc[idx:].reset_index(drop=True)
+                                        
+                                        # First row might be actual column headers
+                                        if df.iloc[0].apply(lambda x: isinstance(x, str)).all():
+                                            df.columns = df.iloc[0]
+                                            df = df.iloc[1:].reset_index(drop=True)
+                                        
+                                        break
+                        
+                        # Final validation
+                        if len(df) > 0 and len(df.columns) > 0:
+                            successful_encoding = encoding
+                            break
+                            
+                    except pd.errors.EmptyDataError:
+                        continue
+                    except pd.errors.ParserError:
+                        continue
+                    except UnicodeDecodeError:
+                        continue
+                    except Exception:
                         continue
                 
-                if df is None or len(df) == 0:
-                    logger.warning(f"Skipping {dataset_key}: empty or unreadable")
-                    continue
+                # Check if we successfully loaded the data
+                if df is None or len(df) == 0 or len(df.columns) == 0:
+                    error_msg = f"Could not load {dataset_key}: No columns or empty dataset"
+                    logger.error(error_msg)
+                    self.stats['processing_errors'].append({
+                        'dataset': dataset_key,
+                        'error': 'No columns to parse from file'
+                    })
+                    raise ValueError(error_msg)
                 
-                # Standardize LSOA column names dynamically
+                logger.success(f"✓ Loaded with {successful_encoding} encoding")
+                
+                # Standardize LSOA column names
                 lsoa_columns = [
                     'LSOA_CODE', 'LSOA11CD', 'LSOA21CD', 
-                    'geography code', 'GEOGRAPHY_CODE',
-                    'lsoa_code', 'lsoa11cd', 'lsoa21cd'
+                    'geography code', 'GEOGRAPHY_CODE', 'geography',
+                    'lsoa_code', 'lsoa11cd', 'lsoa21cd',
+                    'LSOA code', 'LSOA Code'
                 ]
                 
+                lsoa_found = False
                 for col in lsoa_columns:
                     if col in df.columns:
                         df = df.rename(columns={col: 'lsoa_code'})
+                        lsoa_found = True
                         break
                 
+                if not lsoa_found:
+                    logger.warning(f"{dataset_key}: No LSOA column found. Columns: {list(df.columns)[:10]}")
+                
+                # Store the successfully loaded dataset
                 demographic_data[dataset_key] = df
-                logger.success(f"✓ {dataset_key}: {len(df)} records")
+                logger.success(f"✓ {dataset_key}: {len(df)} records, {len(df.columns)} columns")
                 
             except Exception as e:
-                logger.error(f"Failed to load {dataset_key}: {e}")
+                logger.error(f"CRITICAL: Failed to load required dataset {dataset_key}: {e}")
                 self.stats['processing_errors'].append({
                     'dataset': dataset_key,
                     'error': str(e)
                 })
+                # Re-raise the exception - don't continue without required data
+                raise
         
-        logger.success(f"Loaded {len(demographic_data)} demographic datasets")
+        logger.success(f"Successfully loaded {len(demographic_data)} demographic datasets")
         return demographic_data
     
     def create_geodataframe(self, stops_df: pd.DataFrame) -> gpd.GeoDataFrame:
