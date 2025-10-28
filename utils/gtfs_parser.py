@@ -27,21 +27,37 @@ class UKTransportParser:
         try:
             if not self.data_path.exists():
                 return 'unknown'
-                
+
             if self.data_path.suffix.lower() == '.zip':
-                with zipfile.ZipFile(self.data_path, 'r') as zip_ref:
-                    files = zip_ref.namelist()
-                    
-                    txt_files = [f for f in files if f.endswith('.txt')]
-                    xml_files = [f for f in files if f.endswith('.xml')]
-                    
-                    if txt_files and any(f in files for f in ['stops.txt', 'routes.txt', 'trips.txt']):
-                        self.format_type = 'gtfs'
-                        return 'gtfs'
-                    elif xml_files:
-                        self.format_type = 'transxchange'
-                        return 'transxchange'
-            
+                try:
+                    # Try to open as ZIP first
+                    with zipfile.ZipFile(self.data_path, 'r') as zip_ref:
+                        files = zip_ref.namelist()
+
+                        txt_files = [f for f in files if f.endswith('.txt')]
+                        xml_files = [f for f in files if f.endswith('.xml')]
+
+                        if txt_files and any(f in files for f in ['stops.txt', 'routes.txt', 'trips.txt']):
+                            self.format_type = 'gtfs'
+                            return 'gtfs'
+                        elif xml_files:
+                            self.format_type = 'transxchange'
+                            return 'transxchange'
+
+                except zipfile.BadZipFile:
+                    # File has .zip extension but is not a ZIP - check if it's XML
+                    logger.info(f"File {self.data_path.name} has .zip extension but is not a ZIP archive, checking content...")
+
+                    try:
+                        with open(self.data_path, 'r', encoding='utf-8') as f:
+                            content = f.read(1000)  # Read first 1000 chars
+                            if '<TransXChange' in content or 'transxchange.org.uk' in content:
+                                logger.info(f"Detected XML TransXchange content in {self.data_path.name}")
+                                self.format_type = 'transxchange_xml'
+                                return 'transxchange_xml'
+                    except Exception as e:
+                        logger.debug(f"Failed to read file content: {e}")
+
             return 'unknown'
             
         except Exception as e:
@@ -51,11 +67,13 @@ class UKTransportParser:
     def parse_data(self) -> Dict:
         """Parse data based on detected format"""
         format_type = self.detect_format()
-        
+
         if format_type == 'gtfs':
             return self._parse_gtfs()
         elif format_type == 'transxchange':
             return self._parse_transxchange()
+        elif format_type == 'transxchange_xml':
+            return self._parse_transxchange_xml()
         else:
             logger.error(f"Unknown or unsupported format: {format_type}")
             return {}
@@ -104,7 +122,7 @@ class UKTransportParser:
                 for xml_file in xml_files[:10]:  # Limit to first 10 files to avoid memory issues
                     try:
                         xml_content = zip_ref.read(xml_file)
-                        file_stops, file_routes, file_services = self._parse_transxchange_xml(xml_content, xml_file)
+                        file_stops, file_routes, file_services = self._parse_transxchange_xml_content(xml_content, xml_file)
                         
                         stops_data.extend(file_stops)
                         routes_data.extend(file_routes)
@@ -133,8 +151,40 @@ class UKTransportParser:
             logger.error(f"TransXchange parsing failed: {e}")
             self.validation_issues['critical'].append(f"TransXchange parsing failed: {e}")
             return {}
-    
-    def _parse_transxchange_xml(self, xml_content: bytes, filename: str) -> Tuple[List, List, List]:
+
+    def _parse_transxchange_xml(self) -> Dict:
+        """Parse standalone TransXchange XML file (not in ZIP)"""
+        logger.info("Parsing standalone TransXchange XML file")
+
+        try:
+            # Read the XML file directly
+            with open(self.data_path, 'r', encoding='utf-8') as f:
+                xml_content = f.read()
+
+            # Parse the XML
+            stops_data, routes_data, services_data = self._parse_transxchange_xml_content(xml_content.encode('utf-8'), self.data_path.name)
+
+            # Convert to DataFrames
+            if stops_data:
+                self.parsed_data['stops'] = pd.DataFrame(stops_data)
+                logger.info(f"Extracted {len(stops_data)} stops")
+
+            if routes_data:
+                self.parsed_data['routes'] = pd.DataFrame(routes_data)
+                logger.info(f"Extracted {len(routes_data)} routes")
+
+            if services_data:
+                self.parsed_data['services'] = pd.DataFrame(services_data)
+                logger.info(f"Extracted {len(services_data)} services")
+
+            return self.parsed_data
+
+        except Exception as e:
+            logger.error(f"Standalone TransXchange XML parsing failed: {e}")
+            self.validation_issues['critical'].append(f"XML parsing failed: {e}")
+            return {}
+
+    def _parse_transxchange_xml_content(self, xml_content: bytes, filename: str) -> Tuple[List, List, List]:
         """Parse individual TransXchange XML file"""
         stops = []
         routes = []
@@ -154,22 +204,35 @@ class UKTransportParser:
                 namespace_uri = root.tag.split('}')[0][1:]
                 namespaces['txc'] = namespace_uri
             
-            # Extract stops/stop points
-            stop_selectors = [
-                './/txc:StopPoint',
-                './/txc:AnnotatedStopPointRef',
-                './/StopPoint',  # No namespace fallback
-                './/AnnotatedStopPointRef'
-            ]
-            
-            for selector in stop_selectors:
-                stop_points = root.findall(selector, namespaces)
-                if stop_points:
-                    for stop_point in stop_points:
-                        stop_data = self._extract_stop_data(stop_point, namespaces, filename)
-                        if stop_data:
-                            stops.append(stop_data)
-                    break  # Use first successful selector
+            # Extract stops from StopPoints container and AnnotatedStopPointRef
+            stops_extracted = False
+
+            # First try to get stops from StopPoints container with AnnotatedStopPointRef
+            stop_points_container = root.find('txc:StopPoints', namespaces)
+            if stop_points_container is not None:
+                stop_refs = stop_points_container.findall('txc:AnnotatedStopPointRef', namespaces)
+                for stop_ref in stop_refs:
+                    stop_data = self._extract_annotated_stop_data(stop_ref, namespaces, filename)
+                    if stop_data:
+                        stops.append(stop_data)
+                if stop_refs:
+                    stops_extracted = True
+
+            # Fallback to direct StopPoint elements if no stops found
+            if not stops_extracted:
+                stop_selectors = [
+                    './/txc:StopPoint',
+                    './/StopPoint'  # No namespace fallback
+                ]
+
+                for selector in stop_selectors:
+                    stop_points = root.findall(selector, namespaces)
+                    if stop_points:
+                        for stop_point in stop_points:
+                            stop_data = self._extract_stop_data(stop_point, namespaces, filename)
+                            if stop_data:
+                                stops.append(stop_data)
+                        break  # Use first successful selector
             
             # Extract services
             service_selectors = [
@@ -210,6 +273,38 @@ class UKTransportParser:
         
         return stops, routes, services
     
+    def _extract_annotated_stop_data(self, stop_ref_element, namespaces: Dict, filename: str) -> Optional[Dict]:
+        """Extract stop data from AnnotatedStopPointRef element"""
+        try:
+            stop_data = {
+                'source_file': filename,
+                'stop_id': None,
+                'stop_name': None,
+                'latitude': None,
+                'longitude': None,
+                'locality': None
+            }
+
+            # Stop ID from StopPointRef
+            stop_ref = stop_ref_element.find('txc:StopPointRef', namespaces)
+            if stop_ref is not None:
+                stop_data['stop_id'] = stop_ref.text
+
+            # Stop name from CommonName
+            common_name = stop_ref_element.find('txc:CommonName', namespaces)
+            if common_name is not None:
+                stop_data['stop_name'] = common_name.text
+
+            # Note: AnnotatedStopPointRef typically doesn't contain coordinates
+            # Coordinates would be in separate StopPoint definitions
+            # We'll set coordinates to None and let NaPTAN enrichment handle this
+
+            return stop_data if stop_data['stop_id'] else None
+
+        except Exception as e:
+            logger.debug(f"Failed to extract annotated stop data: {e}")
+            return None
+
     def _extract_stop_data(self, stop_element, namespaces: Dict, filename: str) -> Optional[Dict]:
         """Extract stop data from TransXchange XML element"""
         try:
