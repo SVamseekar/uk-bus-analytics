@@ -116,8 +116,8 @@ demographic_sources:
   imd_2019:
     enabled: true
     name: Index of Multiple Deprivation 2019
-    source: arcgis
-    url: https://www.arcgis.com/sharing/rest/content/items/80592949bebd4390b2cbe29159a75ef4/data
+    source: direct_download
+    url: https://assets.publishing.service.gov.uk/media/5dc407b440f0b6379a7acc8d/File_7_-_All_IoD2019_Scores__Ranks__Deciles_and_Population_Denominators_3.csv
     questions_addressed:
       - D24
       - D30

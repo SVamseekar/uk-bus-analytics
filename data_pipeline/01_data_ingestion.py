@@ -77,10 +77,58 @@ class DynamicDataIngestionPipeline:
     def _generate_default_config(self) -> Dict:
         """
         Generate comprehensive default configuration
-        Covers all UK regions and data requirements
+        Covers all 9 UK regions and 8 demographic datasets
         """
         default_config = {
             'regions': {
+                'north_east': {
+                    'enabled': True,
+                    'name': 'North East England',
+                    'major_cities': ['Newcastle', 'Sunderland', 'Middlesbrough', 'Durham'],
+                    'lsoa_prefix': 'E01',
+                    'max_datasets': 10,
+                    'priority': 'medium'
+                },
+                'north_west': {
+                    'enabled': True,
+                    'name': 'North West England',
+                    'major_cities': ['Manchester', 'Liverpool', 'Preston', 'Blackpool', 'Bolton'],
+                    'lsoa_prefix': 'E01',
+                    'max_datasets': 15,
+                    'priority': 'high'
+                },
+                'yorkshire': {
+                    'enabled': True,
+                    'name': 'Yorkshire and Humber',
+                    'major_cities': ['Leeds', 'Sheffield', 'Bradford', 'Hull', 'York'],
+                    'lsoa_prefix': 'E01',
+                    'max_datasets': 12,
+                    'priority': 'high'
+                },
+                'east_midlands': {
+                    'enabled': True,
+                    'name': 'East Midlands',
+                    'major_cities': ['Nottingham', 'Derby', 'Leicester', 'Lincoln', 'Northampton'],
+                    'lsoa_prefix': 'E01',
+                    'max_datasets': 10,
+                    'priority': 'high'
+                },
+                'west_midlands': {
+                    'enabled': True,
+                    'name': 'West Midlands',
+                    'major_cities': ['Birmingham', 'Coventry', 'Wolverhampton', 'Dudley', 'Solihull'],
+                    'lsoa_prefix': 'E01',
+                    'max_datasets': 15,
+                    'priority': 'high'
+                },
+                'east_england': {
+                    'enabled': True,
+                    'name': 'East of England',
+                    'major_cities': ['Norwich', 'Cambridge', 'Ipswich', 'Peterborough', 'Luton'],
+                    'lsoa_prefix': 'E01',
+                    'max_datasets': 10,
+                    'priority': 'medium'
+                },
                 'london': {
                     'enabled': True,
                     'name': 'Greater London',
@@ -92,7 +140,7 @@ class DynamicDataIngestionPipeline:
                 'south_east': {
                     'enabled': True,
                     'name': 'South East England',
-                    'major_cities': ['Brighton', 'Reading', 'Oxford', 'Southampton'],
+                    'major_cities': ['Brighton', 'Reading', 'Oxford', 'Southampton', 'Portsmouth'],
                     'lsoa_prefix': 'E01',
                     'max_datasets': 12,
                     'priority': 'high'
@@ -100,7 +148,7 @@ class DynamicDataIngestionPipeline:
                 'south_west': {
                     'enabled': True,
                     'name': 'South West England',
-                    'major_cities': ['Bristol', 'Plymouth', 'Bournemouth', 'Exeter'],
+                    'major_cities': ['Bristol', 'Plymouth', 'Bournemouth', 'Exeter', 'Swindon'],
                     'lsoa_prefix': 'E01',
                     'max_datasets': 10,
                     'priority': 'medium'
@@ -110,14 +158,14 @@ class DynamicDataIngestionPipeline:
                 'imd_2019': {
                     'enabled': True,
                     'name': 'Index of Multiple Deprivation 2019',
-                    'source': 'arcgis',
-                    'url': 'https://www.arcgis.com/sharing/rest/content/items/80592949bebd4390b2cbe29159a75ef4/data',
+                    'source': 'direct_download',
+                    'url': 'https://assets.publishing.service.gov.uk/media/5dc407b440f0b6379a7acc8d/File_7_-_All_IoD2019_Scores__Ranks__Deciles_and_Population_Denominators_3.csv',
                     'questions_addressed': ['D24', 'D30', 'F37', 'G43', 'G50'],
                     'priority': 'critical'
                 },
                 'population_2021': {
                     'enabled': True,
-                    'name': 'Census 2021 Population',
+                    'name': 'Census 2021 Population by LSOA',
                     'source': 'nomis',
                     'dataset_id': 'NM_2010_1',
                     'geography': 'TYPE297',
@@ -127,17 +175,15 @@ class DynamicDataIngestionPipeline:
                 },
                 'income_2022': {
                     'enabled': True,
-                    'name': 'Median Income by LSOA',
-                    'source': 'nomis',
-                    'dataset_id': 'NM_30_1',
-                    'geography': 'TYPE297',
-                    'time': 'latest',
+                    'name': 'Economic Activity Census 2021 (Latest Available)',
+                    'source': 'direct_download',
+                    'url': 'https://www.ons.gov.uk/file?uri=/datasets/ts066/editions/2021/versions/3/observations.csv',
                     'questions_addressed': ['D24', 'D28', 'I55', 'I56'],
                     'priority': 'high'
                 },
                 'unemployment_2024': {
                     'enabled': True,
-                    'name': 'Unemployment Rate',
+                    'name': 'Unemployment Rate by LSOA',
                     'source': 'nomis',
                     'dataset_id': 'NM_162_1',
                     'geography': 'TYPE297',
@@ -147,11 +193,9 @@ class DynamicDataIngestionPipeline:
                 },
                 'car_ownership': {
                     'enabled': True,
-                    'name': 'Car/Van Ownership',
-                    'source': 'nomis',
-                    'dataset_id': 'NM_2027_1',
-                    'geography': 'TYPE297',
-                    'time': '2021',
+                    'name': 'Car Van Ownership Census 2021 (Latest Available)',
+                    'source': 'direct_download',
+                    'url': 'https://www.ons.gov.uk/file?uri=/datasets/ts045/editions/2021/versions/3/observations.csv',
                     'questions_addressed': ['D28'],
                     'priority': 'medium'
                 },
@@ -171,17 +215,15 @@ class DynamicDataIngestionPipeline:
                     'name': 'UK Schools Database',
                     'source': 'manual',
                     'url': 'https://get-information-schools.service.gov.uk/Downloads',
-                    'instructions': 'Download "Establishment fields" CSV',
+                    'instructions': 'Download Establishment fields CSV with postcodes',
                     'questions_addressed': ['C22', 'D29', 'F39', 'H51'],
                     'priority': 'high'
                 },
                 'business_counts': {
                     'enabled': True,
-                    'name': 'Business Enterprises by LSOA',
-                    'source': 'nomis',
-                    'dataset_id': 'NM_142_1',
-                    'geography': 'TYPE297',
-                    'time': 'latest',
+                    'name': 'UK Business Counts 2024 (Latest Available)',
+                    'source': 'direct_download',
+                    'url': 'https://www.ons.gov.uk/file?uri=/businessindustryandtrade/business/activitysizeandlocation/datasets/ukbusinesscountslocalunitsby4digitsicindustryandemploymentsizeband/current/ukbc24lsoa.xlsx',
                     'questions_addressed': ['I55'],
                     'priority': 'medium'
                 }
