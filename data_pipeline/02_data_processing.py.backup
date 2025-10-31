@@ -653,25 +653,14 @@ class DynamicDataProcessingPipeline:
 
                 logger.info(f"Merging: {dataset_key}")
 
-                # OPTIMIZATION: Filter demographics to only relevant LSOAs and free memory
-                import gc
-                unique_lsoas = stops_gdf['lsoa_code'].unique()
-                demo_df_filtered = demo_df[demo_df['lsoa_code'].isin(unique_lsoas)].copy()
-                del demo_df  # Free original large dataframe from loop variable
-                gc.collect()
-
                 before_cols = len(stops_gdf.columns)
                 stops_gdf = stops_gdf.merge(
-                    demo_df_filtered,
+                    demo_df,
                     on='lsoa_code',
                     how='left',
                     suffixes=('', f'_{dataset_key}')
                 )
                 after_cols = len(stops_gdf.columns)
-
-                # Free filtered dataframe after merge
-                del demo_df_filtered
-                gc.collect()
 
                 matched = stops_gdf['lsoa_code'].notna().sum()
 
