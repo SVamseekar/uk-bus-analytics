@@ -436,25 +436,38 @@ class DynamicDataProcessingPipeline:
             try:
                 logger.info(f"Loading: {dataset_key}")
 
-                # Simple reliable loading with multiple encoding attempts
+                # Simple reliable loading with multiple encoding attempts and engines
                 encodings = ['utf-8', 'latin-1', 'iso-8859-1', 'cp1252']
+                engines = ['c', 'python']
                 df = None
 
                 for encoding in encodings:
-                    try:
-                        df = pd.read_csv(
-                            file_path,
-                            low_memory=False,
-                            encoding=encoding,
-                            encoding_errors='ignore',
-                            on_bad_lines='skip'
-                        )
-                        break
-                    except Exception:
-                        continue
+                    for engine in engines:
+                        try:
+                            read_params = {
+                                'encoding': encoding,
+                                'encoding_errors': 'ignore',
+                                'on_bad_lines': 'skip',
+                                'engine': engine
+                            }
+                            # low_memory only works with C engine
+                            if engine == 'c':
+                                read_params['low_memory'] = False
 
-                if df is None:
-                    raise ValueError(f"Could not load with any encoding: {encodings}")
+                            df = pd.read_csv(file_path, **read_params)
+
+                            # Verify we actually got data
+                            if len(df) > 0 and len(df.columns) > 0:
+                                logger.debug(f"Loaded with encoding={encoding}, engine={engine}")
+                                break
+                        except Exception:
+                            continue
+                    if df is not None and len(df) > 0:
+                        break
+
+                if df is None or len(df) == 0:
+                    logger.warning(f"{dataset_key}: Could not load with any encoding/engine combination, skipping")
+                    continue
 
                 if len(df) == 0 or len(df.columns) == 0:
                     logger.warning(f"{dataset_key}: Empty dataset")
