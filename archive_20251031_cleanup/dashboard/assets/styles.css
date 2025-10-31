@@ -1,0 +1,644 @@
+/**
+ * UK Bus Transport Intelligence Platform
+ * Professional Design System - OECD/World Bank Inspired
+ * Version: 2.0
+ * Date: 2025-10-30
+ */
+
+/* ============================================================================
+   1. CSS VARIABLES - Design Tokens
+   ============================================================================ */
+
+:root {
+  /* Primary Colors */
+  --color-primary-1: #1E3A5F;    /* Navy blue - headers, primary actions */
+  --color-primary-2: #2E7D9A;    /* Teal - links, accents */
+  --color-primary-3: #4CAF90;    /* Mint green - positive indicators */
+
+  /* Semantic Colors */
+  --color-success: #10B981;      /* Green - positive trends, high BCR */
+  --color-warning: #F59E0B;      /* Amber - medium priority */
+  --color-danger: #EF4444;       /* Red - critical issues, low coverage */
+  --color-info: #3B82F6;         /* Blue - informational */
+
+  /* Neutrals - Light Theme */
+  --color-background: #FFFFFF;
+  --color-surface: #F9FAFB;
+  --color-border: #E5E7EB;
+  --color-text-primary: #111827;
+  --color-text-secondary: #6B7280;
+  --color-text-tertiary: #9CA3AF;
+
+  /* Typography */
+  --font-sans: 'Inter', 'Open Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'Roboto Mono', 'Courier New', monospace;
+
+  --text-display: 2.5rem;        /* 40px - Dashboard titles */
+  --text-h1: 2rem;               /* 32px - Module headings */
+  --text-h2: 1.5rem;             /* 24px - Card titles */
+  --text-h3: 1.25rem;            /* 20px - Section headers */
+  --text-body: 1rem;             /* 16px - Body text */
+  --text-small: 0.875rem;        /* 14px - Labels, captions */
+  --text-tiny: 0.75rem;          /* 12px - Legends */
+
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+
+  /* Spacing */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+  --space-2xl: 48px;
+
+  /* Border Radius */
+  --radius-sm: 6px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.1);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.15);
+  --shadow-lg: 0 10px 24px rgba(0, 0, 0, 0.2);
+
+  /* Transitions */
+  --transition-fast: 0.15s ease;
+  --transition-base: 0.2s ease;
+  --transition-slow: 0.3s ease;
+}
+
+/* ============================================================================
+   2. GLOBAL RESETS & BASE STYLES
+   ============================================================================ */
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  font-family: var(--font-sans);
+  font-size: var(--text-body);
+  color: var(--color-text-primary);
+  background-color: var(--color-background);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ============================================================================
+   3. HIDE DEFAULT STREAMLIT UI
+   ============================================================================ */
+
+#MainMenu {
+  visibility: hidden;
+}
+
+footer {
+  visibility: hidden;
+}
+
+header {
+  visibility: hidden;
+}
+
+.stDeployButton {
+  display: none;
+}
+
+/* Hide default Streamlit padding */
+.block-container {
+  padding-top: var(--space-lg) !important;
+  padding-bottom: var(--space-xl) !important;
+  max-width: 1920px !important;
+}
+
+/* ============================================================================
+   4. TYPOGRAPHY
+   ============================================================================ */
+
+h1, .main-header {
+  font-size: var(--text-h1);
+  font-weight: var(--weight-bold);
+  color: var(--color-primary-1);
+  margin-bottom: var(--space-md);
+  line-height: 1.2;
+}
+
+h2 {
+  font-size: var(--text-h2);
+  font-weight: var(--weight-semibold);
+  color: var(--color-text-primary);
+  margin-bottom: var(--space-sm);
+  line-height: 1.3;
+}
+
+h3 {
+  font-size: var(--text-h3);
+  font-weight: var(--weight-semibold);
+  color: var(--color-text-primary);
+  margin-bottom: var(--space-sm);
+  line-height: 1.4;
+}
+
+p {
+  margin-bottom: var(--space-md);
+  color: var(--color-text-secondary);
+}
+
+/* ============================================================================
+   5. KPI CARD COMPONENTS
+   ============================================================================ */
+
+.kpi-card {
+  background: var(--color-surface);
+  border-radius: var(--radius-md);
+  padding: var(--space-lg);
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow var(--transition-base);
+  border: 1px solid var(--color-border);
+  height: 100%;
+}
+
+.kpi-card:hover {
+  box-shadow: var(--shadow-md);
+}
+
+.kpi-card__label {
+  font-size: var(--text-small);
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: var(--space-sm);
+  font-weight: var(--weight-medium);
+}
+
+.kpi-card__value {
+  font-size: var(--text-display);
+  font-weight: var(--weight-bold);
+  color: var(--color-text-primary);
+  line-height: 1.2;
+  margin: var(--space-sm) 0;
+}
+
+.kpi-card__unit {
+  font-size: var(--text-small);
+  color: var(--color-text-secondary);
+  margin-bottom: var(--space-md);
+}
+
+.kpi-card__trend {
+  font-size: var(--text-small);
+  margin-top: var(--space-sm);
+  font-weight: var(--weight-medium);
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.kpi-card__trend--positive {
+  color: var(--color-success);
+}
+
+.kpi-card__trend--negative {
+  color: var(--color-danger);
+}
+
+.kpi-card__trend--warning {
+  color: var(--color-warning);
+}
+
+.kpi-card__trend--neutral {
+  color: var(--color-text-secondary);
+}
+
+/* ============================================================================
+   6. CHART CARD COMPONENTS
+   ============================================================================ */
+
+.chart-card {
+  background: var(--color-background);
+  border-radius: var(--radius-md);
+  padding: var(--space-lg);
+  box-shadow: var(--shadow-sm);
+  border: 1px solid var(--color-border);
+  transition: box-shadow var(--transition-base);
+}
+
+.chart-card:hover {
+  box-shadow: var(--shadow-md);
+}
+
+.chart-card__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-lg);
+  padding-bottom: var(--space-md);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.chart-card__title {
+  font-size: var(--text-h2);
+  font-weight: var(--weight-semibold);
+  color: var(--color-text-primary);
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.chart-card__title-icon {
+  font-size: 1.25rem;
+}
+
+.chart-card__actions {
+  display: flex;
+  gap: var(--space-sm);
+}
+
+.chart-card__action-btn {
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-sm) var(--space-md);
+  cursor: pointer;
+  transition: all var(--transition-base);
+  font-size: var(--text-small);
+  color: var(--color-text-secondary);
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.chart-card__action-btn:hover {
+  background: var(--color-surface);
+  border-color: var(--color-primary-2);
+  color: var(--color-primary-2);
+}
+
+.chart-card__content {
+  position: relative;
+}
+
+/* ============================================================================
+   7. STREAMLIT COMPONENT OVERRIDES
+   ============================================================================ */
+
+/* Metric component styling */
+[data-testid="stMetric"] {
+  background: var(--color-surface);
+  border-radius: var(--radius-md);
+  padding: var(--space-lg);
+  box-shadow: var(--shadow-sm);
+  border: 1px solid var(--color-border);
+}
+
+[data-testid="stMetricLabel"] {
+  font-size: var(--text-small) !important;
+  color: var(--color-text-secondary) !important;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: var(--weight-medium) !important;
+}
+
+[data-testid="stMetricValue"] {
+  font-size: var(--text-display) !important;
+  font-weight: var(--weight-bold) !important;
+  color: var(--color-text-primary) !important;
+}
+
+[data-testid="stMetricDelta"] {
+  font-size: var(--text-small) !important;
+  font-weight: var(--weight-medium) !important;
+}
+
+/* Tab styling */
+.stTabs [data-baseweb="tab-list"] {
+  gap: var(--space-md);
+  background-color: var(--color-surface);
+  padding: var(--space-sm);
+  border-radius: var(--radius-md);
+}
+
+.stTabs [data-baseweb="tab"] {
+  font-weight: var(--weight-medium);
+  border-radius: var(--radius-sm);
+  padding: var(--space-sm) var(--space-lg);
+  color: var(--color-text-secondary);
+}
+
+.stTabs [aria-selected="true"] {
+  background-color: var(--color-primary-1) !important;
+  color: white !important;
+}
+
+/* Expander styling */
+.streamlit-expanderHeader {
+  background-color: var(--color-surface);
+  border-radius: var(--radius-sm);
+  padding: var(--space-md) !important;
+  font-weight: var(--weight-semibold);
+  color: var(--color-text-primary);
+}
+
+.streamlit-expanderHeader:hover {
+  background-color: var(--color-border);
+}
+
+/* Button styling */
+.stButton > button {
+  background-color: var(--color-primary-1);
+  color: white;
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: var(--space-sm) var(--space-lg);
+  font-weight: var(--weight-medium);
+  transition: all var(--transition-base);
+}
+
+.stButton > button:hover {
+  background-color: var(--color-primary-2);
+  box-shadow: var(--shadow-md);
+}
+
+.stButton > button[kind="secondary"] {
+  background-color: transparent;
+  color: var(--color-primary-1);
+  border: 1px solid var(--color-primary-1);
+}
+
+.stButton > button[kind="secondary"]:hover {
+  background-color: var(--color-surface);
+}
+
+/* Download button styling */
+.stDownloadButton > button {
+  background-color: var(--color-success);
+  color: white;
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: var(--space-sm) var(--space-lg);
+  font-weight: var(--weight-medium);
+}
+
+.stDownloadButton > button:hover {
+  background-color: #059669;
+}
+
+/* Hide sidebar - we use top navigation instead */
+[data-testid="stSidebar"] {
+  display: none !important;
+}
+
+/* Hide sidebar collapse button */
+[data-testid="collapsedControl"] {
+  display: none !important;
+}
+
+/* Remove left margin since sidebar is hidden */
+.main .block-container {
+  padding-left: var(--space-xl) !important;
+  padding-right: var(--space-xl) !important;
+}
+
+/* DataFrame/Table styling */
+.stDataFrame {
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+}
+
+/* ============================================================================
+   8. PLOTLY CHART STYLING
+   ============================================================================ */
+
+.js-plotly-plot {
+  border-radius: var(--radius-md);
+  font-family: var(--font-sans) !important;
+}
+
+.js-plotly-plot .plotly .modebar {
+  background-color: transparent !important;
+}
+
+.js-plotly-plot .plotly .modebar-btn {
+  color: var(--color-text-secondary) !important;
+}
+
+.js-plotly-plot .plotly .modebar-btn:hover {
+  background-color: var(--color-surface) !important;
+  color: var(--color-primary-2) !important;
+}
+
+/* ============================================================================
+   9. ACCESSIBILITY
+   ============================================================================ */
+
+/* Focus indicators for keyboard navigation */
+button:focus,
+a:focus,
+input:focus,
+select:focus {
+  outline: 2px solid var(--color-primary-2);
+  outline-offset: 2px;
+}
+
+/* Skip to main content link */
+.skip-link {
+  position: absolute;
+  top: -40px;
+  left: 0;
+  background: var(--color-primary-1);
+  color: white;
+  padding: var(--space-sm);
+  text-decoration: none;
+  z-index: 100;
+  font-weight: var(--weight-medium);
+}
+
+.skip-link:focus {
+  top: 0;
+}
+
+/* Ensure sufficient contrast */
+::selection {
+  background-color: var(--color-primary-2);
+  color: white;
+}
+
+/* ============================================================================
+   10. RESPONSIVE DESIGN
+   ============================================================================ */
+
+/* Mobile (<640px) */
+@media (max-width: 640px) {
+  :root {
+    --text-display: 2rem;
+    --text-h1: 1.5rem;
+    --text-h2: 1.25rem;
+  }
+
+  .block-container {
+    padding-left: var(--space-md) !important;
+    padding-right: var(--space-md) !important;
+  }
+
+  .kpi-card,
+  .chart-card {
+    padding: var(--space-md);
+  }
+
+  .chart-card__header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-sm);
+  }
+}
+
+/* Tablet (641px - 1024px) */
+@media (min-width: 641px) and (max-width: 1024px) {
+  .block-container {
+    padding-left: var(--space-lg) !important;
+    padding-right: var(--space-lg) !important;
+  }
+}
+
+/* Desktop (1025px+) */
+@media (min-width: 1025px) {
+  .block-container {
+    padding-left: var(--space-xl) !important;
+    padding-right: var(--space-xl) !important;
+  }
+}
+
+/* ============================================================================
+   11. UTILITY CLASSES
+   ============================================================================ */
+
+.text-center {
+  text-align: center;
+}
+
+.text-right {
+  text-align: right;
+}
+
+.mt-sm { margin-top: var(--space-sm); }
+.mt-md { margin-top: var(--space-md); }
+.mt-lg { margin-top: var(--space-lg); }
+
+.mb-sm { margin-bottom: var(--space-sm); }
+.mb-md { margin-bottom: var(--space-md); }
+.mb-lg { margin-bottom: var(--space-lg); }
+
+.p-sm { padding: var(--space-sm); }
+.p-md { padding: var(--space-md); }
+.p-lg { padding: var(--space-lg); }
+
+.text-success { color: var(--color-success); }
+.text-warning { color: var(--color-warning); }
+.text-danger { color: var(--color-danger); }
+.text-info { color: var(--color-info); }
+.text-muted { color: var(--color-text-secondary); }
+
+.bg-surface { background-color: var(--color-surface); }
+.bg-white { background-color: var(--color-background); }
+
+.rounded { border-radius: var(--radius-md); }
+.shadow { box-shadow: var(--shadow-sm); }
+.shadow-md { box-shadow: var(--shadow-md); }
+
+/* ============================================================================
+   12. DASHBOARD-SPECIFIC COMPONENTS
+   ============================================================================ */
+
+.dashboard-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-xl);
+  padding-bottom: var(--space-lg);
+  border-bottom: 2px solid var(--color-border);
+}
+
+.dashboard-header__title {
+  font-size: var(--text-h1);
+  font-weight: var(--weight-bold);
+  color: var(--color-primary-1);
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+
+.dashboard-header__subtitle {
+  font-size: var(--text-body);
+  color: var(--color-text-secondary);
+  margin-top: var(--space-xs);
+}
+
+.dashboard-section {
+  margin-bottom: var(--space-2xl);
+}
+
+.dashboard-section__title {
+  font-size: var(--text-h2);
+  font-weight: var(--weight-semibold);
+  color: var(--color-text-primary);
+  margin-bottom: var(--space-lg);
+  padding-bottom: var(--space-sm);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.insight-card {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border-radius: var(--radius-md);
+  padding: var(--space-lg);
+  margin-bottom: var(--space-lg);
+  box-shadow: var(--shadow-md);
+}
+
+.insight-card__title {
+  font-size: var(--text-h3);
+  font-weight: var(--weight-semibold);
+  margin-bottom: var(--space-sm);
+}
+
+.insight-card__content {
+  font-size: var(--text-body);
+  line-height: 1.6;
+}
+
+/* Badge components */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-tiny);
+  font-weight: var(--weight-medium);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.badge--success {
+  background-color: rgba(16, 185, 129, 0.1);
+  color: var(--color-success);
+}
+
+.badge--warning {
+  background-color: rgba(245, 158, 11, 0.1);
+  color: var(--color-warning);
+}
+
+.badge--danger {
+  background-color: rgba(239, 68, 68, 0.1);
+  color: var(--color-danger);
+}
+
+.badge--info {
+  background-color: rgba(59, 130, 246, 0.1);
+  color: var(--color-info);
+}

@@ -13,9 +13,9 @@ load_dotenv()
 
 # Project paths
 PROJECT_ROOT = Path(__file__).parent.parent
-DATA_RAW = PROJECT_ROOT / "data_pipeline" / "raw"
-DATA_PROCESSED = PROJECT_ROOT / "data_pipeline" / "processed"
-DATA_STAGING = PROJECT_ROOT / "data_pipeline" / "staging"
+DATA_RAW = PROJECT_ROOT / "data" / "raw"
+DATA_PROCESSED = PROJECT_ROOT / "data" / "processed"
+DATA_STAGING = PROJECT_ROOT / "data" / "staging"
 LOGS_DIR = PROJECT_ROOT / "logs"
 
 # Ensure critical directories exist

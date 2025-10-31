@@ -1,0 +1,26 @@
+============================================================
+UK BUS ANALYTICS - VALIDATION SUMMARY
+============================================================
+
+Validation Date: 2025-10-28T16:24:09.141175
+Overall Quality Score: 35.07%
+
+Check Results:
+  ✓ Passed: 50
+  ⚠️  Warnings: 1
+  ✗ Failed: 93
+
+Regional Breakdown:
+Region                    Quality Score   Status
+------------------------------------------------------------
+Yorkshire and Humber        37.5%        ✗ Poor
+West Midlands               37.5%        ✗ Poor
+East Midlands               37.5%        ✗ Poor
+North East England          31.2%        ✗ Poor
+South West England          31.2%        ✗ Poor
+Greater London              40.6%        ✗ Poor
+South East England          31.2%        ✗ Poor
+North West England          37.5%        ✗ Poor
+East of England             31.2%        ✗ Poor
+
+============================================================
