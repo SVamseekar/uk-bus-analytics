@@ -436,8 +436,25 @@ class DynamicDataProcessingPipeline:
             try:
                 logger.info(f"Loading: {dataset_key}")
 
-                # Simple reliable loading
-                df = pd.read_csv(file_path, low_memory=False)
+                # Simple reliable loading with multiple encoding attempts
+                encodings = ['utf-8', 'latin-1', 'iso-8859-1', 'cp1252']
+                df = None
+
+                for encoding in encodings:
+                    try:
+                        df = pd.read_csv(
+                            file_path,
+                            low_memory=False,
+                            encoding=encoding,
+                            encoding_errors='ignore',
+                            on_bad_lines='skip'
+                        )
+                        break
+                    except Exception:
+                        continue
+
+                if df is None:
+                    raise ValueError(f"Could not load with any encoding: {encodings}")
 
                 if len(df) == 0 or len(df.columns) == 0:
                     logger.warning(f"{dataset_key}: Empty dataset")
