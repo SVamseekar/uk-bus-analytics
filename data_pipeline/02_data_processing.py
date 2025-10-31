@@ -97,7 +97,7 @@ class DynamicDataProcessingPipeline:
         """
         logger.info("Discovering demographic files...")
 
-        demo_dir = DATA_RAW / 'demographic'
+        demo_dir = DATA_RAW / 'demographics'
         if not demo_dir.exists():
             logger.warning(f"Demographics directory not found: {demo_dir}")
             return {}
@@ -412,6 +412,12 @@ class DynamicDataProcessingPipeline:
         final_count = len(stops_df)
         removed_count = initial_count - final_count
 
+        # Add has_coordinates flag for downstream processing
+        if 'latitude' in stops_df.columns and 'longitude' in stops_df.columns:
+            stops_df['has_coordinates'] = stops_df['latitude'].notna() & stops_df['longitude'].notna()
+        else:
+            stops_df['has_coordinates'] = False
+
         logger.success(f"Cleaned stops: {initial_count} → {final_count} ({removed_count} removed)")
 
         return stops_df
@@ -657,7 +663,9 @@ class DynamicDataProcessingPipeline:
 
         for data_type, df in data.items():
             try:
-                output_path = region_output_dir / f"{data_type}_processed.csv"
+                # Remove _processed suffix if already present to avoid duplication
+                base_name = data_type.replace('_processed', '')
+                output_path = region_output_dir / f"{base_name}_processed.csv"
 
                 # Convert GeoDataFrame to DataFrame for CSV export
                 if isinstance(df, gpd.GeoDataFrame):
