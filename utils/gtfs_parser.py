@@ -119,7 +119,7 @@ class UKTransportParser:
                 
                 logger.info(f"Processing {len(xml_files)} TransXchange files")
                 
-                for xml_file in xml_files[:10]:  # Limit to first 10 files to avoid memory issues
+                for xml_file in xml_files:  # Process all XML files
                     try:
                         xml_content = zip_ref.read(xml_file)
                         file_stops, file_routes, file_services = self._parse_transxchange_xml_content(xml_content, xml_file)

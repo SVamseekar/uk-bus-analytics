@@ -288,6 +288,7 @@ class DynamicDataProcessingPipeline:
         all_routes = []
         all_services = []
         all_trips = []
+        all_stop_times = []  # BUG FIX #6: Collect stop_times data
 
         for data_file in data_files:
             parsed = self.process_transport_file(data_file, region_code)
@@ -300,6 +301,8 @@ class DynamicDataProcessingPipeline:
                 all_services.append(parsed['services'])
             if 'trips' in parsed:
                 all_trips.append(parsed['trips'])
+            if 'stop_times' in parsed:  # BUG FIX #6: Collect stop_times
+                all_stop_times.append(parsed['stop_times'])
 
         # Combine data
         regional_data = {}
@@ -310,7 +313,42 @@ class DynamicDataProcessingPipeline:
 
         if all_routes:
             regional_data['routes'] = pd.concat(all_routes, ignore_index=True)
-            logger.success(f"Combined routes: {len(regional_data['routes'])} records")
+
+            # BUG FIX #5: Deduplicate routes using operator_id + route_id instead of just route_id
+            # Many operators have route "1", "2", etc. - need both operator and route ID for uniqueness
+            routes_df = regional_data['routes']
+            before_dedup = len(routes_df)
+
+            # Try different column name variations for operator
+            operator_col = None
+            for col_name in ['operator_id', 'operator_name', 'operatorName', 'operator']:
+                if col_name in routes_df.columns:
+                    operator_col = col_name
+                    break
+
+            # Try different column name variations for route
+            route_col = None
+            for col_name in ['route_id', 'route_number', 'routeNumber', 'LineName', 'line_name']:
+                if col_name in routes_df.columns:
+                    route_col = col_name
+                    break
+
+            if operator_col and route_col:
+                # Use both operator and route for uniqueness
+                routes_df = routes_df.drop_duplicates(subset=[operator_col, route_col], keep='first')
+                removed = before_dedup - len(routes_df)
+                regional_data['routes'] = routes_df
+                logger.info(f"Route deduplication: {before_dedup} → {len(routes_df)} (removed {removed} duplicates using {operator_col} + {route_col})")
+            elif route_col:
+                # Fallback: just route_id if operator not available
+                routes_df = routes_df.drop_duplicates(subset=[route_col], keep='first')
+                removed = before_dedup - len(routes_df)
+                regional_data['routes'] = routes_df
+                logger.warning(f"Route deduplication: Using only {route_col} (operator ID not available) - {removed} duplicates removed")
+            else:
+                logger.warning("Route deduplication skipped: No route_id column found")
+
+            logger.success(f"Combined routes: {len(regional_data['routes'])} unique records")
 
         if all_services:
             regional_data['services'] = pd.concat(all_services, ignore_index=True)
@@ -319,6 +357,11 @@ class DynamicDataProcessingPipeline:
         if all_trips:
             regional_data['trips'] = pd.concat(all_trips, ignore_index=True)
             logger.success(f"Combined trips: {len(regional_data['trips'])} records")
+
+        # BUG FIX #6: Concatenate stop_times data for route-stop linkage
+        if all_stop_times:
+            regional_data['stop_times'] = pd.concat(all_stop_times, ignore_index=True)
+            logger.success(f"Combined stop_times: {len(regional_data['stop_times'])} records")
 
         self.regional_data[region_code] = regional_data
 
@@ -329,7 +372,8 @@ class DynamicDataProcessingPipeline:
             'stops_count': len(regional_data.get('stops', [])),
             'routes_count': len(regional_data.get('routes', [])),
             'services_count': len(regional_data.get('services', [])),
-            'trips_count': len(regional_data.get('trips', []))
+            'trips_count': len(regional_data.get('trips', [])),
+            'stop_times_count': len(regional_data.get('stop_times', []))  # BUG FIX #6
         }
 
     def clean_stops_data(self, stops_df: pd.DataFrame, region_code: str) -> pd.DataFrame:
@@ -578,8 +622,9 @@ class DynamicDataProcessingPipeline:
 
         logger.info(f"Matched {matched_by_locality} stops by locality")
 
-        # Strategy 2: Assign remaining by geographic region
-        # Ensure proper indexing alignment
+        # Strategy 2: Assign remaining by geographic coordinates using LSOA centroid nearest-neighbor
+        # BUG FIX #3: Use actual coordinates instead of region-based assignment
+        # PERFORMANCE FIX: Use spatial join instead of slow API calls (instant vs hours)
         if 'lsoa_code' not in stops_gdf.columns:
             stops_gdf['lsoa_code'] = None
         if 'lsoa_name' not in stops_gdf.columns:
@@ -588,38 +633,69 @@ class DynamicDataProcessingPipeline:
         unmatched = stops_gdf['lsoa_code'].isna()
         unmatched_count = unmatched.sum()
 
-        if unmatched_count > 0:
-            logger.info(f"Assigning {unmatched_count} remaining stops by region...")
+        if unmatched_count > 0 and 'latitude' in stops_gdf.columns and 'longitude' in stops_gdf.columns:
+            logger.info(f"Assigning {unmatched_count} remaining stops by geographic coordinates...")
 
-            # Get region-specific LSOAs
-            region_code = stops_gdf['region_code'].iloc[0] if 'region_code' in stops_gdf.columns else None
+            try:
+                # Load LSOA centroids from file (much faster than API calls)
+                lsoa_centroids_file = DATA_RAW / 'boundaries' / 'lsoa_names_codes.csv'
 
-            if region_code:
-                region_config = self.config['regions'].get(region_code, {})
-                major_cities = region_config.get('major_cities', [])
+                if lsoa_centroids_file.exists():
+                    logger.info("Loading LSOA centroids for spatial matching...")
+                    lsoa_centroids = pd.read_csv(lsoa_centroids_file)
 
-                # Find LSOAs for this region's cities
-                region_lsoas = []
-                for city in major_cities:
-                    if 'lsoa_name' in lsoa_lookup.columns:
-                        city_lsoas = lsoa_lookup[
-                            lsoa_lookup['lsoa_name'].str.contains(city, case=False, na=False)
-                        ]
-                        region_lsoas.append(city_lsoas)
+                    # Rename columns to standard names
+                    lsoa_centroids = lsoa_centroids.rename(columns={
+                        'LSOA21CD': 'lsoa_code',
+                        'LSOA21NM': 'lsoa_name',
+                        'LAT': 'lsoa_lat',
+                        'LONG': 'lsoa_lon'
+                    })
 
-                if region_lsoas:
-                    combined_lsoas = pd.concat(region_lsoas, ignore_index=True)
+                    # Filter to valid LSOA records
+                    lsoa_centroids = lsoa_centroids[
+                        lsoa_centroids['lsoa_code'].notna() &
+                        lsoa_centroids['lsoa_lat'].notna() &
+                        lsoa_centroids['lsoa_lon'].notna()
+                    ]
 
-                    if len(combined_lsoas) > 0:
-                        # Use loc to ensure proper indexing alignment
-                        unmatched_mask = stops_gdf['lsoa_code'].isna()
-                        unmatched_indices = stops_gdf.loc[unmatched_mask].index
+                    logger.info(f"Loaded {len(lsoa_centroids)} LSOA centroids")
 
-                        for i, idx in enumerate(unmatched_indices):
-                            lsoa_idx = i % len(combined_lsoas)
-                            stops_gdf.at[idx, 'lsoa_code'] = combined_lsoas.iloc[lsoa_idx]['lsoa_code']
-                            if 'lsoa_name' in combined_lsoas.columns:
-                                stops_gdf.at[idx, 'lsoa_name'] = combined_lsoas.iloc[lsoa_idx]['lsoa_name']
+                    # Use vectorized nearest-neighbor matching with sklearn
+                    from sklearn.neighbors import BallTree
+
+                    # Create BallTree for fast nearest-neighbor lookup
+                    lsoa_coords = np.radians(lsoa_centroids[['lsoa_lat', 'lsoa_lon']].values)
+                    tree = BallTree(lsoa_coords, metric='haversine')
+
+                    # Get unmatched stops
+                    unmatched_stops = stops_gdf[unmatched].copy()
+                    stop_coords = np.radians(unmatched_stops[['latitude', 'longitude']].values)
+
+                    # Find nearest LSOA for each stop (in km)
+                    distances, indices = tree.query(stop_coords, k=1)
+                    distances_km = distances.flatten() * 6371  # Earth radius in km
+                    nearest_lsoa_indices = indices.flatten()
+
+                    # Assign LSOA codes (only if within reasonable distance - 5km threshold)
+                    assigned_count = 0
+                    for i, idx in enumerate(unmatched_stops.index):
+                        if distances_km[i] < 5.0:  # Within 5km of LSOA centroid
+                            nearest_lsoa = lsoa_centroids.iloc[nearest_lsoa_indices[i]]
+                            stops_gdf.at[idx, 'lsoa_code'] = nearest_lsoa['lsoa_code']
+                            stops_gdf.at[idx, 'lsoa_name'] = nearest_lsoa['lsoa_name']
+                            assigned_count += 1
+
+                    logger.success(f"Spatial matching: {assigned_count} stops matched to LSOAs (instant)")
+
+                else:
+                    logger.warning(f"LSOA centroids file not found: {lsoa_centroids_file}")
+                    logger.warning("Cannot assign LSOA codes without boundary data")
+
+            except Exception as e:
+                logger.error(f"Failed to perform spatial LSOA matching: {e}")
+                import traceback
+                logger.error(traceback.format_exc())
 
         final_matched = stops_gdf['lsoa_code'].notna().sum() if 'lsoa_code' in stops_gdf.columns else 0
         coverage = (final_matched / len(stops_gdf)) * 100 if len(stops_gdf) > 0 else 0
@@ -627,6 +703,46 @@ class DynamicDataProcessingPipeline:
         logger.success(f"LSOA coverage: {final_matched}/{len(stops_gdf)} ({coverage:.1f}%)")
 
         return stops_gdf
+
+    def add_msoa_codes(self, stops_gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+        """
+        Add MSOA codes to stops using LSOA-to-MSOA lookup
+        Required for merging MSOA-level demographics (business counts)
+        """
+        if 'lsoa_code' not in stops_gdf.columns:
+            logger.warning("No LSOA codes found, cannot add MSOA codes")
+            return stops_gdf
+
+        try:
+            # Load LSOA-to-MSOA lookup
+            lookup_file = DATA_RAW / 'demographics' / 'lsoa_to_msoa_lookup.csv'
+
+            if not lookup_file.exists():
+                logger.warning(f"LSOA-MSOA lookup not found: {lookup_file}")
+                logger.warning("Run: python utils/create_lsoa_msoa_lookup.py")
+                return stops_gdf
+
+            lookup = pd.read_csv(lookup_file)
+            logger.info(f"Loaded LSOA-MSOA lookup: {len(lookup)} mappings")
+
+            # Merge MSOA codes
+            before_count = len(stops_gdf)
+            stops_with_msoa = stops_gdf.merge(
+                lookup[['lsoa_code', 'msoa_code']],
+                on='lsoa_code',
+                how='left'
+            )
+
+            matched = stops_with_msoa['msoa_code'].notna().sum()
+            match_rate = (matched / before_count * 100) if before_count > 0 else 0
+
+            logger.success(f"Added MSOA codes: {matched}/{before_count} stops ({match_rate:.1f}%)")
+
+            return stops_with_msoa
+
+        except Exception as e:
+            logger.error(f"Failed to add MSOA codes: {e}")
+            return stops_gdf
 
     def merge_demographic_data(self, stops_gdf: gpd.GeoDataFrame, demographic_data: Dict[str, pd.DataFrame]) -> gpd.GeoDataFrame:
         """
@@ -643,27 +759,38 @@ class DynamicDataProcessingPipeline:
 
         for dataset_key, demo_df in demographic_data.items():
             try:
-                if 'lsoa_code' not in demo_df.columns:
-                    logger.warning(f"Skipping {dataset_key}: no lsoa_code column")
+                # Determine merge key: LSOA or MSOA
+                merge_key = None
+                if 'lsoa_code' in demo_df.columns:
+                    merge_key = 'lsoa_code'
+                elif 'msoa_code' in demo_df.columns:
+                    merge_key = 'msoa_code'
+                else:
+                    logger.warning(f"Skipping {dataset_key}: no lsoa_code or msoa_code column")
                     continue
 
-                if 'lsoa_code' not in stops_gdf.columns:
-                    logger.warning("Stops don't have lsoa_code column")
+                if merge_key not in stops_gdf.columns:
+                    logger.warning(f"Stops don't have {merge_key} column, skipping {dataset_key}")
                     continue
 
-                logger.info(f"Merging: {dataset_key}")
+                logger.info(f"Merging: {dataset_key} (on {merge_key})")
 
-                # OPTIMIZATION: Filter demographics to only relevant LSOAs and free memory
+                # OPTIMIZATION: Filter demographics to only relevant codes and free memory
                 import gc
-                unique_lsoas = stops_gdf['lsoa_code'].unique()
-                demo_df_filtered = demo_df[demo_df['lsoa_code'].isin(unique_lsoas)].copy()
+                unique_codes = stops_gdf[merge_key].unique()
+                demo_df_filtered = demo_df[demo_df[merge_key].isin(unique_codes)].copy()
                 del demo_df  # Free original large dataframe from loop variable
                 gc.collect()
 
                 before_cols = len(stops_gdf.columns)
+
+                # BUG FIX #4: Validate merge before and after to detect actual data transfer
+                # Get a sample demographic column to verify data was actually transferred
+                demo_cols = [col for col in demo_df_filtered.columns if col != merge_key]
+
                 stops_gdf = stops_gdf.merge(
                     demo_df_filtered,
-                    on='lsoa_code',
+                    on=merge_key,
                     how='left',
                     suffixes=('', f'_{dataset_key}')
                 )
@@ -673,15 +800,28 @@ class DynamicDataProcessingPipeline:
                 del demo_df_filtered
                 gc.collect()
 
-                matched = stops_gdf['lsoa_code'].notna().sum()
+                # BUG FIX #4: Count actual demographic data matches, not just LSOA presence
+                # Check if any demographic column has non-null values
+                actual_matched = 0
+                if demo_cols:
+                    # Use the first demographic column as a proxy for successful merge
+                    first_demo_col = demo_cols[0]
+                    if first_demo_col in stops_gdf.columns:
+                        actual_matched = stops_gdf[first_demo_col].notna().sum()
+                    elif f"{first_demo_col}_{dataset_key}" in stops_gdf.columns:
+                        actual_matched = stops_gdf[f"{first_demo_col}_{dataset_key}"].notna().sum()
 
                 self.stats['demographic_merges'][dataset_key] = {
-                    'matched': int(matched),
+                    'matched': int(actual_matched),
                     'total': int(len(stops_gdf)),
-                    'new_columns': after_cols - before_cols
+                    'new_columns': after_cols - before_cols,
+                    'match_rate': f"{(actual_matched / len(stops_gdf) * 100):.1f}%" if len(stops_gdf) > 0 else "0%"
                 }
 
-                logger.success(f"✓ {dataset_key}: {matched} matches, {after_cols - before_cols} new columns")
+                if actual_matched == 0 and after_cols > before_cols:
+                    logger.warning(f"⚠ {dataset_key}: {after_cols - before_cols} columns added but NO data transferred!")
+                else:
+                    logger.success(f"✓ {dataset_key}: {actual_matched} matches ({(actual_matched/len(stops_gdf)*100):.1f}%), {after_cols - before_cols} new columns")
 
             except Exception as e:
                 logger.error(f"Failed to merge {dataset_key}: {e}")
@@ -780,6 +920,9 @@ class DynamicDataProcessingPipeline:
                             if lsoa_lookup is not None:
                                 stops_gdf = self.assign_lsoa_codes(stops_gdf, lsoa_lookup)
 
+                            # Add MSOA codes (for MSOA-level demographics like business counts)
+                            stops_gdf = self.add_msoa_codes(stops_gdf)
+
                             # Merge demographics
                             stops_final = self.merge_demographic_data(stops_gdf, demographic_data)
 
@@ -802,6 +945,59 @@ class DynamicDataProcessingPipeline:
                     'error': str(e)
                 })
 
+        # BUG FIX #2: Global cross-region deduplication
+        logger.info("\n" + "="*60)
+        logger.info("GLOBAL CROSS-REGION DEDUPLICATION")
+        logger.info("="*60)
+
+        all_stops_before = []
+        for region_code, region_data in self.regional_data.items():
+            if 'stops_processed' in region_data:
+                stops_df = region_data['stops_processed']
+                if isinstance(stops_df, gpd.GeoDataFrame):
+                    # Add region identifier
+                    stops_df = stops_df.copy()
+                    stops_df['source_region'] = region_code
+                    all_stops_before.append(stops_df)
+
+        if all_stops_before:
+            combined_stops = pd.concat(all_stops_before, ignore_index=True)
+            before_count = len(combined_stops)
+            logger.info(f"Combined stops from all regions: {before_count}")
+
+            # Deduplicate by stop_id (prioritizing stops with better data quality)
+            # Sort by completeness: prefer stops with more non-null demographic data
+            if 'stop_id' in combined_stops.columns:
+                # Calculate data completeness score per stop
+                combined_stops['_completeness'] = combined_stops.count(axis=1)
+                combined_stops = combined_stops.sort_values('_completeness', ascending=False)
+
+                # Keep first (most complete) occurrence of each stop_id
+                combined_stops_dedup = combined_stops.drop_duplicates(subset=['stop_id'], keep='first')
+                combined_stops_dedup = combined_stops_dedup.drop(columns=['_completeness'])
+
+                after_count = len(combined_stops_dedup)
+                removed_count = before_count - after_count
+
+                logger.success(f"Global deduplication: {before_count} → {after_count} stops ({removed_count} cross-region duplicates removed, {(removed_count/before_count*100):.1f}%)")
+
+                # Save globally deduplicated dataset
+                output_path = DATA_PROCESSED / 'outputs'
+                output_path.mkdir(parents=True, exist_ok=True)
+
+                deduplicated_file = output_path / 'all_stops_deduplicated.csv'
+                combined_stops_dedup.to_csv(deduplicated_file, index=False)
+                logger.success(f"Saved globally deduplicated stops: {deduplicated_file}")
+
+                self.stats['global_deduplication'] = {
+                    'before': before_count,
+                    'after': after_count,
+                    'removed': removed_count,
+                    'duplicate_rate': f"{(removed_count/before_count*100):.1f}%"
+                }
+            else:
+                logger.warning("Cannot deduplicate globally: no stop_id column")
+
         # Generate summary
         duration = datetime.now() - self.stats['start_time']
 
@@ -809,9 +1005,12 @@ class DynamicDataProcessingPipeline:
             'success': True,
             'duration': str(duration),
             'regions_processed': len(self.stats['regions_processed']),
-            'total_stops': sum(r.get('stops_count', 0) for r in self.stats['regions_processed'].values()),
+            'total_stops_before_dedup': sum(r.get('stops_count', 0) for r in self.stats['regions_processed'].values()),
+            'total_stops_after_dedup': self.stats.get('global_deduplication', {}).get('after', 'N/A'),
+            'cross_region_duplicates_removed': self.stats.get('global_deduplication', {}).get('removed', 0),
             'total_routes': sum(r.get('routes_count', 0) for r in self.stats['regions_processed'].values()),
             'demographic_merges': self.stats['demographic_merges'],
+            'global_deduplication': self.stats.get('global_deduplication', {}),
             'errors': self.stats['processing_errors'],
             'regional_details': self.stats['regions_processed']
         }
