@@ -863,6 +863,28 @@ class DynamicDataProcessingPipeline:
 
         return saved_files
 
+    def _cleanup_old_processed_files(self):
+        """
+        Remove all old processed files before starting new pipeline run
+        Ensures fresh start every time
+        """
+        import shutil
+
+        logger.info("\n" + "="*60)
+        logger.info("CLEANING UP OLD PROCESSED FILES")
+        logger.info("="*60)
+
+        # Remove entire processed directory
+        if DATA_PROCESSED.exists():
+            file_count = len(list(DATA_PROCESSED.rglob('*')))
+            shutil.rmtree(DATA_PROCESSED)
+            logger.success(f"✓ Removed {file_count} old processed files")
+
+        # Recreate directory structure
+        DATA_PROCESSED.mkdir(parents=True, exist_ok=True)
+        logger.success("✓ Created fresh processed directory")
+        logger.info("="*60)
+
     def process_all_regions(self) -> Dict:
         """
         Process all discovered regions
@@ -871,6 +893,9 @@ class DynamicDataProcessingPipeline:
         logger.info("\n" + "="*60)
         logger.info("DYNAMIC DATA PROCESSING PIPELINE")
         logger.info("="*60)
+
+        # Clean up old processed files
+        self._cleanup_old_processed_files()
 
         # Discover data files
         regional_files = self.discover_regional_data_files()
