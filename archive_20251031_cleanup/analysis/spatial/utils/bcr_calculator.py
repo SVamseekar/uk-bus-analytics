@@ -18,16 +18,36 @@ class BCRCalculator:
     following UK Treasury Green Book and DfT TAG guidelines
     """
 
-    # DfT TAG Appraisal Values (2025 prices)
-    DFT_VALUES_2025 = {
-        'commuting_time_value': 25.19,  # £/hour
-        'leisure_time_value': 12.85,    # £/hour
-        'business_time_value': 47.32,   # £/hour
+    # DfT TAG Appraisal Values (2024 official prices)
+    # Source: DfT TAG Data Book May 2024
+    DFT_VALUES_2024 = {
+        'bus_commuting': 9.85,      # £/hour (TAG A1.3 Table 2 - bus commuting)
+        'car_commuting': 12.65,     # £/hour (TAG A1.3 Table 2 - car commuting)
+        'business': 28.30,          # £/hour (TAG A1.3 Table 2 - business travel)
+        'leisure': 7.85,            # £/hour (TAG A1.3 Table 2 - leisure travel)
         'accident_prevention': 1_850_000,  # £ per fatality prevented
-        'carbon_value': 250,  # £/tonne CO2
-        'air_quality_nox': 120,  # £/tonne NOx reduction
-        'air_quality_pm': 180,  # £/tonne PM reduction
-        'noise_reduction': 0.15,  # £ per trip
+        'carbon_value': 80.0,       # £/tonne CO₂ (TAG A3 - 2024 central estimate)
+        'bus_emissions': 0.0965,    # kg CO₂e per passenger-km (BEIS 2024)
+        'car_emissions': 0.171,     # kg CO₂e per passenger-km (average UK car)
+        'air_quality_nox': 120,     # £/tonne NOx reduction
+        'air_quality_pm': 180,      # £/tonne PM reduction
+        'noise_reduction': 0.15,    # £ per trip
+    }
+
+    # Agglomeration uplift factors (TAG A2.4)
+    AGGLOMERATION_UPLIFT = {
+        'urban': 0.25,              # 25% uplift for urban areas
+        'city_center': 0.50,        # 50% uplift for city centers
+        'rural': 0.0                # No agglomeration benefit in rural areas
+    }
+
+    # BCR thresholds (HM Treasury Green Book)
+    BCR_CATEGORIES = {
+        'poor': (0, 1.0),
+        'low': (1.0, 1.5),
+        'medium': (1.5, 2.0),
+        'high': (2.0, 4.0),
+        'very_high': (4.0, float('inf'))
     }
 
     # Cost Parameters
@@ -147,8 +167,8 @@ class BCRCalculator:
         leisure_passengers = new_passengers * 0.20
 
         annual_time_savings = (
-            commuting_passengers * trips_per_passenger_per_year * time_saved_per_trip_hours * self.DFT_VALUES_2025['commuting_time_value'] +
-            leisure_passengers * trips_per_passenger_per_year * time_saved_per_trip_hours * self.DFT_VALUES_2025['leisure_time_value']
+            commuting_passengers * trips_per_passenger_per_year * time_saved_per_trip_hours * self.DFT_VALUES_2024['bus_commuting'] +
+            leisure_passengers * trips_per_passenger_per_year * time_saved_per_trip_hours * self.DFT_VALUES_2024['leisure']
         )
 
         pv_time_savings = self.calculate_present_value(annual_time_savings)
@@ -181,9 +201,9 @@ class BCRCalculator:
         new_passengers = total_population * adoption_rate
         car_switchers = new_passengers * modal_shift_from_car
 
-        # Emissions (kg CO2 per km)
-        car_emissions_per_km = 0.171  # Average UK car
-        bus_emissions_per_passenger_km = 0.089  # Per passenger
+        # Emissions (kg CO2 per km) - using 2024 TAG values
+        car_emissions_per_km = self.DFT_VALUES_2024['car_emissions']  # 0.171 kg CO₂/km
+        bus_emissions_per_passenger_km = self.DFT_VALUES_2024['bus_emissions']  # 0.0965 kg CO₂/km
 
         # Trip assumptions
         trips_per_year = 250
@@ -194,8 +214,8 @@ class BCRCalculator:
         bus_emissions_annual = car_switchers * trips_per_year * avg_trip_distance_km * bus_emissions_per_passenger_km
         co2_saved_tonnes_annual = (car_emissions_annual - bus_emissions_annual) / 1000
 
-        # Monetize carbon savings
-        annual_carbon_benefit = co2_saved_tonnes_annual * self.DFT_VALUES_2025['carbon_value']
+        # Monetize carbon savings using 2024 TAG value (£80/tonne CO₂)
+        annual_carbon_benefit = co2_saved_tonnes_annual * self.DFT_VALUES_2024['carbon_value']
         pv_carbon_benefit = self.calculate_present_value(annual_carbon_benefit)
 
         return {
@@ -448,7 +468,7 @@ class BCRCalculator:
                 'appraisal_period_years': self.APPRAISAL_PERIOD,
                 'discount_rate': self.DISCOUNT_RATE,
                 'framework': 'UK Treasury Green Book + DfT TAG',
-                'values_year': '2025 prices',
+                'values_year': '2024 prices (TAG Data Book May 2024)',
             }
         }
 
