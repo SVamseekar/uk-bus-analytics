@@ -1832,13 +1832,54 @@ Regions covered:        9/9 (100%)
 
 ---
 
-#### Task 1.3: Missing Datasets Verification ✅
-**Status:** COMPLETE (Already in processed data)
-**Time Taken:** 1 hour
+#### Task 1.3: Missing Datasets Download & GeoJSON Fix ✅
+**Status:** COMPLETE (with fixes applied Nov 3, 2025)
+**Time Taken:** 2 hours
 
-**Datasets Verified:**
-- ✅ Urban/Rural classification: In `stops_processed.csv` columns
-- ✅ LSOA boundaries & codes: 100% coverage
+**Dataset 1: Rural-Urban Classification** ✅
+- **Status:** Already integrated in `stops_processed.csv`
+- **Columns:** `UrbanRural (code)`, `UrbanRural (name)`
+- **Coverage:** 100% (from schools data merge)
+- **Questions unlocked:** A6, A7, B16
+
+**Dataset 2: LSOA Boundaries GeoJSON** ✅ FIXED
+- **Issue:** Original file corrupted (11 bytes, "Bad Request")
+- **Root cause:** ONS ArcGIS API now requires authentication token (changed Nov 2025)
+- **Solution implemented:** Created GeoJSON from existing LSOA centroid data
+- **Script:** `utils/download_lsoa_boundaries.py` (updated with two-method approach)
+- **Method 1:** Attempt TopoJSON download from ONS Visual repository (failed - 404)
+- **Method 2 (Used):** Generate GeoJSON from existing `lsoa_names_codes.csv`
+- **File:** `data/raw/boundaries/lsoa_2021.geojson`
+- **Content:** 35,672 LSOA point centroids (WGS84 coordinates)
+- **Size:** 6.65 MB
+- **Properties:** LSOA codes, names, British National Grid coordinates
+- **Geometry:** Point centroids (sufficient for heatmaps/cluster analysis)
+- **Note:** Full polygon boundaries can be downloaded manually from https://geoportal.statistics.gov.uk/ if needed
+- **Questions unlocked:** A6 (visualization component)
+
+**Dataset 3: Car Ownership (Census 2021 Table TS045)** ✅ PROCESSED, ⚠️ NOT YET INTEGRATED
+- **Source:** Census 2021 TS045 bulk download from NOMIS
+- **Input file:** `data/raw/demographics/census2021-ts045-lsoa.csv` (1.7 MB, downloaded Jan 2023)
+- **Processing script:** `utils/process_car_ownership_bulk.py`
+- **Processing method:**
+  - Loaded bulk CSV with all car ownership categories
+  - Renamed columns to pipeline format
+  - Calculated `pct_no_car` and `pct_with_car` percentages
+  - Filtered to England LSOAs only (E01 codes)
+  - Extracted essential columns for pipeline integration
+- **Output file:** `data/raw/demographics/car_ownership_2021.csv`
+- **Size:** 2.6 MB
+- **Processed:** November 3, 2025 00:46
+- **Records:** 33,756 LSOAs
+- **Columns:**
+  - `lsoa_code`, `lsoa_name`
+  - `total_households`, `households_no_car`, `households_1_car`, `households_2_cars`, `households_3plus_cars`
+  - `pct_no_car`, `pct_with_car`
+- **Status:** File exists and processed, but NOT merged into `stops_processed.csv` yet
+- **Action required:** Add to data processing pipeline (02_data_processing.py) to merge by `lsoa_code`
+- **Questions unlocked when integrated:** D27, D28
+
+**Additional Datasets Already Verified:**
 - ✅ IMD 2019: 99-100% match rate
 - ✅ Employment/unemployment: 96-99% match rate
 - ✅ Demographics: 97-98% match rate (age, population)
@@ -1846,6 +1887,11 @@ Regions covered:        9/9 (100%)
 - ✅ Business counts: 96-99% match rate (MSOA level)
 
 **Total Stops with Demographics:** 779,262 across 9 regions
+
+**Summary:**
+- Rural/Urban: Already integrated ✅
+- LSOA GeoJSON: Fixed and ready ✅
+- Car ownership: Processed from bulk download, needs pipeline integration ⚠️
 
 ---
 
