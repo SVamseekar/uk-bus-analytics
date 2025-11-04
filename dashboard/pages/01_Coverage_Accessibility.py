@@ -42,32 +42,39 @@ stop density, route availability, walking distances, and service accessibility s
 
 st.markdown("---")
 
-# Global filters
-col1, col2, col3 = st.columns([2, 2, 2])
-with col1:
-    region_filter = st.selectbox(
-        "Select Region:",
-        ['All Regions'] + sorted(list(REGION_CODES.keys())),
-        key='region_filter'
-    )
-with col2:
-    urban_rural_filter = st.selectbox(
-        "Urban/Rural Classification:",
-        ['All', 'Urban', 'Rural'],
-        key='urban_rural_filter',
-        help="Filter by urban/rural classification (requires UrbanRural column)"
-    )
-with col3:
-    comparison_view = st.selectbox(
-        "View Mode:",
-        ['Regional Comparison', 'Detailed Analysis'],
-        key='view_mode'
-    )
+# Global filters - REDESIGNED
+st.markdown("### Filter View")
 
-filters = {
-    'region': region_filter,
-    'urban_rural': urban_rural_filter
-}
+# Create filter options
+filter_options = ['📊 All Regions (Comparison)']
+filter_options += ['---REGIONS---']
+filter_options += [f'📍 {region}' for region in sorted(list(REGION_CODES.keys()))]
+filter_options += ['---URBAN/RURAL AGGREGATES---']
+filter_options += ['🏙️ All Urban Areas', '🌾 All Rural Areas']
+
+view_filter = st.selectbox(
+    "Select Analysis Scope:",
+    filter_options,
+    key='view_filter',
+    help="Choose to compare all regions, analyze a specific region, or aggregate by urban/rural classification"
+)
+
+# Parse the filter
+if view_filter == '📊 All Regions (Comparison)':
+    filter_mode = 'all_regions'
+    filter_value = None
+elif view_filter.startswith('📍'):
+    filter_mode = 'region'
+    filter_value = view_filter.replace('📍 ', '')
+elif view_filter == '🏙️ All Urban Areas':
+    filter_mode = 'urban'
+    filter_value = 'urban'
+elif view_filter == '🌾 All Rural Areas':
+    filter_mode = 'rural'
+    filter_value = 'rural'
+else:
+    filter_mode = 'all_regions'
+    filter_value = None
 
 st.markdown("---")
 
@@ -79,16 +86,61 @@ st.markdown("---")
 st.header("📊 A1: Regional Route Density Analysis")
 st.markdown("*Which regions have the highest number of bus routes per capita?*")
 
-def load_route_density_data(filters):
-    """Load routes per capita data"""
-    df = load_regional_summary()
-    if df.empty:
-        return df
+def load_filtered_data(filter_mode, filter_value):
+    """
+    Load data based on filter mode
+    - all_regions: return regional summary (9 regions)
+    - region: return single region summary
+    - urban/rural: aggregate stops data by urban/rural classification across all regions
+    """
+    if filter_mode == 'all_regions':
+        # Show all regional data
+        return load_regional_summary()
 
-    if filters['region'] and filters['region'] != 'All Regions':
-        df = df[df['region_name'] == filters['region']]
+    elif filter_mode == 'region':
+        # Show single region
+        df = load_regional_summary()
+        return df[df['region_name'] == filter_value]
 
-    return df
+    elif filter_mode in ['urban', 'rural']:
+        # Aggregate across all regions by urban/rural classification
+        stops_data = load_regional_stops()
+
+        if stops_data.empty or 'UrbanRural (name)' not in stops_data.columns:
+            return pd.DataFrame()
+
+        # Get unique LSOAs with their classification
+        lsoa_data = stops_data[['lsoa_code', 'UrbanRural (name)', 'total_population']].drop_duplicates('lsoa_code')
+
+        # Filter by urban or rural
+        if filter_mode == 'urban':
+            lsoa_data = lsoa_data[lsoa_data['UrbanRural (name)'].str.contains('Urban', case=False, na=False)]
+        else:  # rural
+            lsoa_data = lsoa_data[lsoa_data['UrbanRural (name)'].str.contains('Rural', case=False, na=False)]
+
+        # Count stops in these LSOAs
+        stops_in_filter = stops_data[stops_data['lsoa_code'].isin(lsoa_data['lsoa_code'])]
+
+        # Count unique routes (from source files)
+        routes_count = stops_in_filter['source_file'].nunique()
+
+        # Aggregate metrics
+        aggregated = pd.DataFrame([{
+            'region_code': filter_mode,
+            'region_name': '🏙️ All Urban Areas' if filter_mode == 'urban' else '🌾 All Rural Areas',
+            'total_stops': stops_in_filter['stop_id'].nunique(),
+            'unique_lsoas': lsoa_data['lsoa_code'].nunique(),
+            'population': lsoa_data['total_population'].sum(),
+            'routes_count': routes_count
+        }])
+
+        # Calculate per-capita metrics
+        aggregated['stops_per_1000'] = (aggregated['total_stops'] / aggregated['population']) * 1000
+        aggregated['routes_per_100k'] = (aggregated['routes_count'] / aggregated['population']) * 100000
+
+        return aggregated
+
+    return pd.DataFrame()
 
 def create_route_density_viz(data):
     """Create professional horizontal bar chart"""
@@ -135,13 +187,31 @@ def create_route_density_viz(data):
 
 # Load and visualize
 with st.spinner("Loading route density data..."):
-    route_data = load_route_density_data(filters)
+    route_data = load_filtered_data(filter_mode, filter_value)
 
     if not route_data.empty:
-        # Visualization
-        fig = create_route_density_viz(route_data)
-        if fig:
-            st.plotly_chart(fig, use_container_width=True)
+        # Show different views based on filter mode
+        if filter_mode in ['region', 'urban', 'rural']:
+            # Single entity: show metrics
+            region = route_data.iloc[0]
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Routes per 100k", f"{region['routes_per_100k']:.1f}")
+            with col2:
+                st.metric("Total Routes", f"{int(region['routes_count']):,}")
+            with col3:
+                st.metric("Population", f"{int(region['population']):,}")
+            with col4:
+                # Calculate national average for comparison
+                all_data = load_regional_summary()
+                nat_avg = all_data['routes_per_100k'].mean()
+                delta = region['routes_per_100k'] - nat_avg
+                st.metric("vs National Avg", f"{delta:+.1f}", delta=f"{delta:+.1f}")
+        else:
+            # Multiple regions: show chart
+            fig = create_route_density_viz(route_data)
+            if fig:
+                st.plotly_chart(fig, use_container_width=True)
 
         # Generate narrative using InsightEngine
         config = MetricConfig(
@@ -155,7 +225,7 @@ with st.spinner("Loading route density data..."):
             min_groups=1
         )
 
-        narrative = ENGINE.run(route_data, config, filters)
+        narrative = ENGINE.run(route_data, config, {'region': filter_value if filter_mode == 'region' else None})
 
         # Display insights
         st.markdown("### Key Findings")
@@ -172,7 +242,7 @@ with st.spinner("Loading route density data..."):
             st.markdown("**Data Sources:**")
             for source in narrative['sources']:
                 st.markdown(f"- {source}")
-            st.markdown(f"\n**Sample Size:** {narrative['evidence']['n']} regions analyzed")
+            st.markdown(f"\n**Sample Size:** {narrative['evidence']['n']} analyzed")
     else:
         st.error("No route density data available")
 
@@ -234,12 +304,31 @@ def create_stop_coverage_viz(data):
 
 # Load and visualize
 with st.spinner("Loading stop coverage data..."):
-    stop_data = load_route_density_data(filters)  # Same data source
+    stop_data = load_filtered_data(filter_mode, filter_value)
 
     if not stop_data.empty:
-        fig = create_stop_coverage_viz(stop_data)
-        if fig:
-            st.plotly_chart(fig, use_container_width=True)
+        # Show different views based on filter mode
+        if filter_mode in ['region', 'urban', 'rural']:
+            # Single entity: show metrics
+            region = stop_data.iloc[0]
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Stops per 1,000", f"{region['stops_per_1000']:.1f}")
+            with col2:
+                st.metric("Total Stops", f"{int(region['total_stops']):,}")
+            with col3:
+                st.metric("Population", f"{int(region['population']):,}")
+            with col4:
+                # Calculate national average for comparison
+                all_data = load_regional_summary()
+                nat_avg = all_data['stops_per_1000'].mean()
+                delta = region['stops_per_1000'] - nat_avg
+                st.metric("vs National Avg", f"{delta:+.1f}", delta=f"{delta:+.1f}")
+        else:
+            # Multiple regions: show chart
+            fig = create_stop_coverage_viz(stop_data)
+            if fig:
+                st.plotly_chart(fig, use_container_width=True)
 
         # Generate narrative
         config = MetricConfig(
@@ -253,7 +342,7 @@ with st.spinner("Loading stop coverage data..."):
             min_groups=1
         )
 
-        narrative = ENGINE.run(stop_data, config, filters)
+        narrative = ENGINE.run(stop_data, config, {'region': filter_value if filter_mode == 'region' else None})
 
         st.markdown("### Key Findings")
         st.info(narrative['summary'])
@@ -323,9 +412,9 @@ def create_density_scatter(data):
     return fig
 
 with st.spinner("Analyzing population-service mismatch..."):
-    density_data = load_route_density_data(filters)
+    density_data = load_filtered_data(filter_mode, filter_value)
 
-    if not density_data.empty:
+    if not density_data.empty and filter_mode == 'all_regions':
         fig = create_density_scatter(density_data)
         if fig:
             st.plotly_chart(fig, use_container_width=True)
@@ -355,6 +444,8 @@ with st.spinner("Analyzing population-service mismatch..."):
                     st.markdown("**Underserved Regions (below trend line):**")
                     for _, row in underserved.iterrows():
                         st.markdown(f"- **{row['region_name']}**: {row['stops_per_1000']:.1f} stops/1000 (expected: {row['expected_stops']:.1f})")
+    elif not density_data.empty:
+        st.info("📊 **Note:** Population-service mismatch analysis is only available in 'All Regions' comparison mode. This section requires multiple regions for correlation analysis.")
     else:
         st.error("Insufficient data for density analysis")
 
@@ -365,94 +456,104 @@ st.markdown("---")
 # SECTION A4: Service Desert Identification
 # ============================================================================
 
-st.header("📊 A4: Service Desert Identification")
-st.markdown("*How many areas lack any bus service (bus deserts)?*")
+st.header("📊 A4: Stop Coverage Distribution")
+st.markdown("*How are bus stops distributed across local areas (LSOAs)?*")
 
-@st.cache_data
-def load_all_lsoas():
-    """Load complete master list of ALL LSOAs in England (excludes Wales)"""
-    try:
-        lsoas = pd.read_csv('data/raw/boundaries/lsoa_names_codes.csv')
-        lsoas = lsoas[['LSOA21CD', 'LSOA21NM']].rename(columns={
-            'LSOA21CD': 'lsoa_code',
-            'LSOA21NM': 'lsoa_name'
-        })
-        # Filter to England only (E-codes) - exclude Wales (W-codes)
-        lsoas = lsoas[lsoas['lsoa_code'].str.startswith('E')]
-        return lsoas
-    except Exception as e:
-        st.error(f"Could not load LSOA master list: {e}")
-        return pd.DataFrame()
-
-def identify_service_deserts(region_name=None):
-    """Identify LSOAs with no bus stops - PROPERLY FIXED VERSION"""
-    # STEP 1: Load ALL LSOAs in England (master list)
-    all_lsoas = load_all_lsoas()
-
-    if all_lsoas.empty:
-        return pd.DataFrame(), {}
-
-    # STEP 2: Load stops data
-    stops_data = load_regional_stops(region_name)
+def analyze_stop_distribution(filter_mode, filter_value):
+    """Analyze distribution of stops across LSOAs in our dataset"""
+    # Load stops data (contains LSOAs with demographic info)
+    if filter_mode == 'all_regions':
+        stops_data = load_regional_stops()
+    elif filter_mode == 'region':
+        stops_data = load_regional_stops(filter_value)
+    elif filter_mode in ['urban', 'rural']:
+        stops_data = load_regional_stops()
+        if 'UrbanRural (name)' in stops_data.columns:
+            if filter_mode == 'urban':
+                lsoa_list = stops_data[stops_data['UrbanRural (name)'].str.contains('Urban', case=False, na=False)]['lsoa_code'].unique()
+            else:
+                lsoa_list = stops_data[stops_data['UrbanRural (name)'].str.contains('Rural', case=False, na=False)]['lsoa_code'].unique()
+            stops_data = stops_data[stops_data['lsoa_code'].isin(lsoa_list)]
+    else:
+        stops_data = pd.DataFrame()
 
     if stops_data.empty:
         return pd.DataFrame(), {}
 
-    # STEP 3: Count stops per LSOA (only for LSOAs that have stops)
-    stops_per_lsoa = stops_data.groupby('lsoa_code').agg({
-        'stop_id': 'count',
-        'region_code': 'first',
-        'total_population': 'first'
-    }).reset_index()
-    stops_per_lsoa.columns = ['lsoa_code', 'stop_count', 'region_code', 'population']
+    # Get unique LSOAs with their population
+    lsoa_info = stops_data[['lsoa_code', 'total_population', 'region_code']].drop_duplicates('lsoa_code')
 
-    # STEP 4: Filter master list by region if specified
-    if region_name and region_name != 'All Regions':
-        # Get LSOAs that belong to this region (from stops data)
-        region_lsoas = stops_data['lsoa_code'].unique()
-        all_lsoas = all_lsoas[all_lsoas['lsoa_code'].isin(region_lsoas)]
+    # Count stops per LSOA
+    stops_per_lsoa = stops_data.groupby('lsoa_code').size().reset_index(name='stop_count')
 
-    # STEP 5: Merge to get complete picture (LEFT JOIN to keep ALL LSOAs)
-    lsoa_coverage = all_lsoas.merge(stops_per_lsoa, on='lsoa_code', how='left')
+    # Merge to get LSOAs with stop counts
+    lsoa_coverage = lsoa_info.merge(stops_per_lsoa, on='lsoa_code', how='left')
     lsoa_coverage['stop_count'] = lsoa_coverage['stop_count'].fillna(0).astype(int)
-    lsoa_coverage['population'] = lsoa_coverage['population'].fillna(0)
 
-    # STEP 6: Identify deserts (0 stops)
-    deserts = lsoa_coverage[lsoa_coverage['stop_count'] == 0]
+    # Calculate statistics
+    total_lsoas = len(lsoa_coverage)
+    lsoas_with_stops = (lsoa_coverage['stop_count'] > 0).sum()
+    lsoas_no_stops = (lsoa_coverage['stop_count'] == 0).sum()
+
+    # Low coverage = 1-3 stops
+    low_coverage = ((lsoa_coverage['stop_count'] >= 1) & (lsoa_coverage['stop_count'] <= 3)).sum()
+
+    # Good coverage = 4+ stops
+    good_coverage = (lsoa_coverage['stop_count'] >= 4).sum()
 
     stats = {
-        'total_lsoas': len(lsoa_coverage),
-        'desert_lsoas': len(deserts),
-        'pct_deserts': (len(deserts) / len(lsoa_coverage) * 100) if len(lsoa_coverage) > 0 else 0,
-        'affected_population': deserts['population'].sum() if len(deserts) > 0 else 0
+        'total_lsoas': total_lsoas,
+        'lsoas_with_stops': lsoas_with_stops,
+        'lsoas_no_stops': lsoas_no_stops,
+        'low_coverage_lsoas': low_coverage,
+        'good_coverage_lsoas': good_coverage,
+        'pct_with_stops': (lsoas_with_stops / total_lsoas * 100) if total_lsoas > 0 else 0,
+        'pct_no_stops': (lsoas_no_stops / total_lsoas * 100) if total_lsoas > 0 else 0,
+        'avg_stops_per_lsoa': lsoa_coverage['stop_count'].mean(),
+        'median_stops_per_lsoa': lsoa_coverage['stop_count'].median(),
+        'total_population': lsoa_coverage['total_population'].sum(),
+        'pop_no_stops': lsoa_coverage[lsoa_coverage['stop_count'] == 0]['total_population'].sum()
     }
 
     return lsoa_coverage, stats
 
-with st.spinner("Identifying service deserts..."):
-    lsoa_data, desert_stats = identify_service_deserts(
-        region_filter if region_filter != 'All Regions' else None
-    )
+with st.spinner("Analyzing stop coverage distribution..."):
+    lsoa_data, coverage_stats = analyze_stop_distribution(filter_mode, filter_value)
 
     if not lsoa_data.empty:
         # Display metrics
         col1, col2, col3, col4 = st.columns(4)
         with col1:
-            st.metric("Total LSOAs", f"{desert_stats['total_lsoas']:,}")
+            st.metric("Total LSOAs Analyzed", f"{coverage_stats['total_lsoas']:,}")
         with col2:
-            st.metric("Service Deserts", f"{desert_stats['desert_lsoas']:,}")
+            st.metric("LSOAs with Zero Stops", f"{coverage_stats['lsoas_no_stops']:,}",
+                     delta=f"{coverage_stats['pct_no_stops']:.1f}%")
         with col3:
-            st.metric("% Without Service", f"{desert_stats['pct_deserts']:.1f}%")
+            st.metric("Avg Stops per LSOA", f"{coverage_stats['avg_stops_per_lsoa']:.1f}")
         with col4:
-            st.metric("Affected Population", f"{desert_stats['affected_population']:,.0f}")
+            st.metric("Population in Zero-Stop LSOAs", f"{coverage_stats['pop_no_stops']:,.0f}")
+
+        # Coverage breakdown
+        st.markdown("### Coverage Categories")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("No Coverage (0 stops)",
+                     f"{coverage_stats['lsoas_no_stops']:,}",
+                     delta=f"{coverage_stats['pct_no_stops']:.1f}%")
+        with col2:
+            st.metric("Low Coverage (1-3 stops)",
+                     f"{coverage_stats['low_coverage_lsoas']:,}")
+        with col3:
+            st.metric("Good Coverage (4+ stops)",
+                     f"{coverage_stats['good_coverage_lsoas']:,}")
 
         # Visualize distribution
         fig = px.histogram(
-            lsoa_data[lsoa_data['stop_count'] < 50],  # Cap for readability
+            lsoa_data[lsoa_data['stop_count'] <= 30],  # Cap for readability
             x='stop_count',
-            nbins=50,
+            nbins=30,
             title='Distribution of Bus Stops per LSOA',
-            labels={'stop_count': 'Number of Bus Stops', 'count': 'Number of LSOAs'},
+            labels={'stop_count': 'Number of Bus Stops per LSOA', 'count': 'Number of LSOAs'},
             color_discrete_sequence=['#16a34a']
         )
         fig.update_layout(
@@ -466,12 +567,20 @@ with st.spinner("Identifying service deserts..."):
 
         # Analysis
         st.markdown("### Analysis")
-        if desert_stats['pct_deserts'] > 5:
-            st.error(f"**Significant coverage gaps identified:** {desert_stats['pct_deserts']:.1f}% of LSOAs have no bus service, affecting {desert_stats['affected_population']:,.0f} residents.")
-        elif desert_stats['pct_deserts'] > 1:
-            st.warning(f"**Some coverage gaps exist:** {desert_stats['pct_deserts']:.1f}% of LSOAs lack bus service.")
+        if coverage_stats['pct_no_stops'] > 5:
+            st.error(f"**Significant coverage gaps:** {coverage_stats['pct_no_stops']:.1f}% of analyzed LSOAs have zero bus stops, affecting {coverage_stats['pop_no_stops']:,.0f} residents.")
+        elif coverage_stats['pct_no_stops'] > 1:
+            st.warning(f"**Some coverage gaps:** {coverage_stats['pct_no_stops']:.1f}% of LSOAs have no stops, affecting {coverage_stats['pop_no_stops']:,.0f} people.")
         else:
-            st.success(f"**Excellent coverage:** Only {desert_stats['pct_deserts']:.1f}% of LSOAs are service deserts.")
+            st.success(f"**Excellent coverage:** Only {coverage_stats['pct_no_stops']:.1f}% of LSOAs have zero stops.")
+
+        st.info(f"""
+        **Interpretation:**
+        - This analysis covers **{coverage_stats['total_lsoas']:,} LSOAs** with demographic data in our regional dataset
+        - **{coverage_stats['pct_with_stops']:.1f}%** of these LSOAs have at least one bus stop
+        - Average: {coverage_stats['avg_stops_per_lsoa']:.1f} stops per LSOA | Median: {coverage_stats['median_stops_per_lsoa']:.0f} stops
+        - Total population analyzed: {coverage_stats['total_population']:,.0f}
+        """)
     else:
         st.error("Unable to load LSOA-level data")
 
@@ -485,12 +594,30 @@ st.markdown("---")
 st.header("📊 A5: Walking Distance Analysis")
 st.markdown("*What is the average distance from a household to the nearest bus stop in each region?*")
 
-def calculate_lsoa_to_nearest_stop_distance(region_name=None):
+def calculate_lsoa_to_nearest_stop_distance(filter_mode, filter_value):
     """Calculate actual distance from each LSOA centroid to nearest bus stop"""
     from scipy.spatial import cKDTree
 
+    # Load stops based on filter
+    if filter_mode == 'all_regions':
+        stops_data = load_regional_stops()
+    elif filter_mode == 'region':
+        stops_data = load_regional_stops(filter_value)
+    elif filter_mode in ['urban', 'rural']:
+        stops_data = load_regional_stops()
+        if 'UrbanRural (name)' in stops_data.columns:
+            if filter_mode == 'urban':
+                lsoa_list = stops_data[stops_data['UrbanRural (name)'].str.contains('Urban', case=False, na=False)]['lsoa_code'].unique()
+            else:
+                lsoa_list = stops_data[stops_data['UrbanRural (name)'].str.contains('Rural', case=False, na=False)]['lsoa_code'].unique()
+            stops_data = stops_data[stops_data['lsoa_code'].isin(lsoa_list)]
+    else:
+        stops_data = pd.DataFrame()
+
+    if stops_data.empty:
+        return pd.DataFrame()
+
     # Load LSOA centroids
-    all_lsoas = load_all_lsoas()
     lsoa_centroids_raw = pd.read_csv('data/raw/boundaries/lsoa_names_codes.csv')
     lsoa_centroids = lsoa_centroids_raw[['LSOA21CD', 'LAT', 'LONG']].rename(columns={
         'LSOA21CD': 'lsoa_code',
@@ -498,10 +625,11 @@ def calculate_lsoa_to_nearest_stop_distance(region_name=None):
         'LONG': 'lon'
     })
 
-    # Load stops
-    stops_data = load_regional_stops(region_name)
+    # Filter to only LSOAs in our stops data
+    unique_lsoas = stops_data['lsoa_code'].unique()
+    lsoa_centroids = lsoa_centroids[lsoa_centroids['lsoa_code'].isin(unique_lsoas)]
 
-    if stops_data.empty or lsoa_centroids.empty:
+    if lsoa_centroids.empty:
         return pd.DataFrame()
 
     # Get unique stops with coordinates
@@ -522,7 +650,7 @@ def calculate_lsoa_to_nearest_stop_distance(region_name=None):
 
     for _, lsoa in lsoa_centroids.iterrows():
         lsoa_coord = np.array([lsoa['lat'], lsoa['lon']]) * 111000  # Convert to meters
-        distance, idx = tree.query(lsoa_coord)
+        distance, _ = tree.query(lsoa_coord)
 
         lsoa_distances.append({
             'lsoa_code': lsoa['lsoa_code'],
@@ -531,19 +659,14 @@ def calculate_lsoa_to_nearest_stop_distance(region_name=None):
 
     distance_df = pd.DataFrame(lsoa_distances)
 
-    # Merge with LSOA names and stop data for region info
-    distance_df = distance_df.merge(all_lsoas, on='lsoa_code', how='left')
-
-    # Get region info from stops
-    lsoa_regions = stops_data[['lsoa_code', 'region_code', 'total_population']].drop_duplicates('lsoa_code')
-    distance_df = distance_df.merge(lsoa_regions, on='lsoa_code', how='left')
+    # Get region info and urban/rural classification from stops
+    lsoa_info = stops_data[['lsoa_code', 'region_code', 'total_population', 'UrbanRural (name)']].drop_duplicates('lsoa_code')
+    distance_df = distance_df.merge(lsoa_info, on='lsoa_code', how='left')
 
     return distance_df
 
 with st.spinner("Calculating actual walking distances using coordinates..."):
-    lsoa_distances = calculate_lsoa_to_nearest_stop_distance(
-        region_filter if region_filter != 'All Regions' else None
-    )
+    lsoa_distances = calculate_lsoa_to_nearest_stop_distance(filter_mode, filter_value)
 
     if not lsoa_distances.empty:
         # Calculate regional averages
@@ -641,9 +764,7 @@ This analysis uses LSOA centroid distances as a proxy for population accessibili
 
 with st.spinner("Analyzing accessibility standard compliance..."):
     # Reuse A5's distance calculations
-    lsoa_distances_a6 = calculate_lsoa_to_nearest_stop_distance(
-        region_filter if region_filter != 'All Regions' else None
-    )
+    lsoa_distances_a6 = calculate_lsoa_to_nearest_stop_distance(filter_mode, filter_value)
 
     if not lsoa_distances_a6.empty:
         # Classify LSOAs by compliance (using 400m and 500m thresholds)
@@ -755,9 +876,16 @@ st.markdown("---")
 st.header("📊 A7: Urban-Rural Coverage Disparity")
 st.markdown("*How does bus coverage vary between urban and rural areas?*")
 
-def analyze_urban_rural_coverage(region_name=None):
+def analyze_urban_rural_coverage(filter_mode, filter_value):
     """Analyze coverage by urban/rural classification using ONS RUC data"""
-    stops_data = load_regional_stops(region_name)
+    # Load stops based on filter
+    if filter_mode == 'all_regions':
+        stops_data = load_regional_stops()
+    elif filter_mode == 'region':
+        stops_data = load_regional_stops(filter_value)
+    else:
+        # For urban/rural filter mode, this analysis doesn't make sense (already filtered)
+        return None, None
 
     if stops_data.empty or 'UrbanRural (name)' not in stops_data.columns:
         return None, None
@@ -789,11 +917,11 @@ def analyze_urban_rural_coverage(region_name=None):
     return ur_analysis, lsoa_with_stops
 
 with st.spinner("Analyzing urban-rural disparities..."):
-    ur_data, lsoa_detail = analyze_urban_rural_coverage(
-        region_filter if region_filter != 'All Regions' else None
-    )
+    ur_data, lsoa_detail = analyze_urban_rural_coverage(filter_mode, filter_value)
 
-    if ur_data is not None and not ur_data.empty:
+    if filter_mode in ['urban', 'rural']:
+        st.info(f"📊 **Note:** Urban-Rural disparity analysis is not available when viewing '{view_filter}'. This section compares urban vs rural areas, so it requires either 'All Regions' or a specific region to be selected.")
+    elif ur_data is not None and not ur_data.empty:
         # Visualization
         ur_sorted = ur_data.sort_values('stops_per_1000', ascending=False)
 
@@ -898,9 +1026,11 @@ def identify_mismatch_zones(data):
     return data_calc
 
 with st.spinner("Identifying population-service mismatch zones..."):
-    mismatch_data = load_route_density_data(filters)
+    mismatch_data = load_filtered_data(filter_mode, filter_value)
 
-    if not mismatch_data.empty:
+    if filter_mode != 'all_regions':
+        st.info("📊 **Note:** Population-service mismatch analysis is only available in 'All Regions' comparison mode. This section requires multiple regions for mismatch scoring.")
+    elif not mismatch_data.empty:
         mismatch_analysis = identify_mismatch_zones(mismatch_data)
 
         if mismatch_analysis is not None:
@@ -945,8 +1075,6 @@ with st.spinner("Identifying population-service mismatch zones..."):
                 - Mismatch Score: {row['mismatch_score']:.2f}
                 - **Recommendation:** Increase stop density and route coverage to match population demand
                 """)
-    else:
-        st.error("No data available for mismatch analysis")
 
 st.markdown("---")
 
