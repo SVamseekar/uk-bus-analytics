@@ -424,16 +424,32 @@ with st.spinner("Loading stop coverage data..."):
                     line=dict(color='white', width=2)
                 ),
                 text=[f"{v:.1f}" for v in values],
-                textposition='outside',
-                textfont=dict(size=14, color='black'),
                 hovertemplate='%{theta}<br>%{r:.1f} stops/1000<extra></extra>'
             ))
+
+            # Add value annotations
+            annotations = []
+            angles = [90, 210, 330]  # Angles for 3 categories (120 degrees apart, starting at 90)
+            for i, (cat, val, angle) in enumerate(zip(categories, values, angles)):
+                # Calculate position for annotation (slightly outside the bar)
+                r_pos = val * 1.15
+                annotations.append(
+                    dict(
+                        x=r_pos * np.cos(np.radians(angle)),
+                        y=r_pos * np.sin(np.radians(angle)),
+                        text=f"<b>{val:.1f}</b>",
+                        showarrow=False,
+                        font=dict(size=13, color=colors[i]),
+                        xref="x",
+                        yref="y"
+                    )
+                )
 
             fig.update_layout(
                 polar=dict(
                     radialaxis=dict(
                         visible=True,
-                        range=[0, max(values) * 1.2],
+                        range=[0, max(values) * 1.3],
                         showticklabels=False,
                         ticks=''
                     ),
@@ -442,6 +458,7 @@ with st.spinner("Loading stop coverage data..."):
                         rotation=90
                     )
                 ),
+                annotations=annotations,
                 title=dict(
                     text=f"Stop Coverage Benchmark<br><sub>Percentile: {percentile:.0f}th (among all regions)</sub>",
                     x=0.5,
