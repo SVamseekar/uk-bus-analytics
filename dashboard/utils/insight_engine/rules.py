@@ -73,11 +73,16 @@ class RankingRule:
 
     def applies(self, ctx: ViewContext, metrics: Dict[str, Any]) -> bool:
         # Only for all-regions or subset with multiple groups
-        return ctx.n_groups >= 3 and metrics.get('distribution') is not None
+        return (ctx.n_groups >= 3 and
+                metrics.get('distribution') is not None and
+                metrics.get('extrema') is not None)
 
     def emit(self, ctx: ViewContext, metrics: Dict[str, Any]) -> List[Insight]:
         dist = metrics['distribution']
-        extrema = metrics['extrema']
+        extrema = metrics.get('extrema')
+
+        if not extrema:
+            return []
 
         best = extrema['max_row']
         worst = extrema['min_row']

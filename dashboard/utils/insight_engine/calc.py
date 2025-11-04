@@ -179,7 +179,7 @@ def describe_distribution(series: pd.Series) -> dict:
 # GAP ANALYSIS & INVESTMENT
 # ============================================================================
 
-def calculate_gap_to_target(df: pd.DataFrame, value_col: str, target: float | str = 'national_avg') -> pd.DataFrame:
+def calculate_gap_to_target(df: pd.DataFrame, value_col: str, target = 'national_avg') -> pd.DataFrame:
     """
     Calculate gap to target (e.g., national average)
 

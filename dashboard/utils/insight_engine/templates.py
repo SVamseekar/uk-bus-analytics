@@ -4,7 +4,7 @@ Template Renderer - Consulting-tone text generation with Jinja2
 Professional, evidence-based narratives with dynamic value injection
 """
 
-from jinja2 import Template, Environment
+from jinja2 import Environment
 from typing import Dict, Any
 from .context import ViewContext
 from .rules import Insight
@@ -27,14 +27,14 @@ env.filters['num'] = lambda x, p=1: f"{x:,.{p}f}"
 # SUMMARY TEMPLATES
 # ============================================================================
 
-RANKING_TEMPLATE = Template("""
+RANKING_TEMPLATE = env.from_string("""
 **{{ best.name }}** leads the nation with **{{ best.value|num(1) }} {{ unit }}**, providing extensive network connectivity and multiple journey options for residents. This is {{ best_pct_above|pct(0) }} above the national average of {{ national_avg|num(1) }} {{ unit }}.
 
 In contrast, **{{ worst.name }}** operates only **{{ worst.value|num(1) }} {{ unit }}** ({{ worst_pct_below|pct(0) }} below national average), limiting connectivity and reducing travel options for **{{ (worst.population/1e6)|num(1) }} million residents**.
 """.strip())
 
 
-SINGLE_REGION_TEMPLATE = Template("""
+SINGLE_REGION_TEMPLATE = env.from_string("""
 **{{ region_name }}** ranks **#{{ rank }}** of {{ total_regions }} regions with **{{ value|num(1) }} {{ unit }}**. This is {{ pct_vs_national|pct(0) }} {{ 'above' if pct_vs_national > 0 else 'below' }} the national average of {{ national_avg|num(1) }} {{ unit }}.
 
 {% if pct_vs_national < -10 %}
@@ -51,17 +51,17 @@ Performance is close to the national benchmark, indicating typical service provi
 # KEY FINDING TEMPLATES
 # ============================================================================
 
-VARIATION_TEMPLATE = Template("""
+VARIATION_TEMPLATE = env.from_string("""
 Service provision varies {{ variation_factor|num(1) }}x between best and worst performing regions (CV={{ cv|pct(0) }}), indicating {{ variation_label }}. This suggests that **network design and policy choices** matter more than population scale alone - smaller regions can achieve high performance through strategic planning and investment prioritization.
 """.strip())
 
 
-CORRELATION_TEMPLATE = Template("""
+CORRELATION_TEMPLATE = env.from_string("""
 {{ strength|title }} {{ 'positive' if r > 0 else 'negative' }} correlation detected between {{ x_name }} and {{ y_name }} (r={{ r|num(2) }}, p={{ p|num(3) }}, n={{ n }}). {% if r < 0 %}Areas with higher {{ x_name }} tend to have lower {{ y_name }}, suggesting systematic service distribution patterns that may warrant policy attention.{% else %}Higher {{ x_name }} is associated with better {{ y_name }}, indicating aligned service provision.{% endif %}
 """.strip())
 
 
-OUTLIER_TEMPLATE = Template("""
+OUTLIER_TEMPLATE = env.from_string("""
 {{ n_outliers }} region{% if n_outliers > 1 %}s{% endif %} identified as statistical outlier{% if n_outliers > 1 %}s{% endif %}: {{ outlier_regions|join(', ') }}. These areas warrant individual investigation to understand local factors driving unusual performance patterns.
 """.strip())
 
@@ -70,7 +70,7 @@ OUTLIER_TEMPLATE = Template("""
 # RECOMMENDATION TEMPLATES
 # ============================================================================
 
-GAP_INVESTMENT_TEMPLATE = Template("""
+GAP_INVESTMENT_TEMPLATE = env.from_string("""
 **{{ n_below_target }} region{% if n_below_target > 1 %}s{% endif %} fall below the national average**, affecting {{ (total_pop_affected/1e6)|num(1) }} million residents.
 
 Estimated investment to bring {% if n_below_target == 1 %}this region{% else %}bottom {{ n_below_target }} regions{% endif %} to national average: **{{ investment_npv|currency(1) }}** (NPV over {{ horizon_years }} years).
@@ -91,7 +91,7 @@ This would add {{ gap_units|num(0) }} {{ unit }}, improving connectivity for und
 # INVESTMENT DETAIL TEMPLATES
 # ============================================================================
 
-INVESTMENT_DETAIL_TEMPLATE = Template("""
+INVESTMENT_DETAIL_TEMPLATE = env.from_string("""
 **Investment breakdown:**
 - Net Present Value ({{ horizon_years }} years, 3.5% discount): {{ npv|currency(1) }}
 - Annual operating cost: {{ annual_cost|currency(1) }}
