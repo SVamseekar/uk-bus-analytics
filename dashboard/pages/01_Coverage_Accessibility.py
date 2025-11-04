@@ -108,6 +108,23 @@ st.markdown("---")
 st.header("📊 A1: Regional Route Density Analysis")
 st.markdown("*Which regions have the highest number of bus routes per capita?*")
 
+def calculate_population_weighted_average(df, value_col):
+    """
+    Calculate population-weighted average for per-capita metrics
+
+    This is critical for national averages because simple mean() treats
+    small regions (1.9M) equally with large regions (6.8M), which is incorrect.
+    """
+    if df.empty or 'population' not in df.columns:
+        return df[value_col].mean() if value_col in df.columns else 0
+
+    if value_col == 'routes_per_100k' and 'routes_count' in df.columns:
+        return (df['routes_count'].sum() / df['population'].sum()) * 100000
+    elif value_col == 'stops_per_1000' and 'total_stops' in df.columns:
+        return (df['total_stops'].sum() / df['population'].sum()) * 1000
+    else:
+        return df[value_col].mean()
+
 def load_filtered_data(filter_mode, filter_value):
     """
     Load data based on filter mode
@@ -210,8 +227,8 @@ def create_route_density_viz(data):
         margin=dict(l=0, r=0, t=40, b=0)
     )
 
-    # Add national average line
-    national_avg = data['routes_per_100k'].mean()
+    # Add national average line (population-weighted)
+    national_avg = calculate_population_weighted_average(data, 'routes_per_100k')
     fig.add_vline(
         x=national_avg,
         line_dash="dash",
@@ -239,9 +256,9 @@ with st.spinner("Loading route density data..."):
             with col3:
                 st.metric("Population", f"{int(region['population']):,}")
             with col4:
-                # Calculate national average for comparison
+                # Calculate national average for comparison (population-weighted)
                 all_data = load_regional_summary()
-                nat_avg = all_data['routes_per_100k'].mean()
+                nat_avg = calculate_population_weighted_average(all_data, 'routes_per_100k')
                 delta = region['routes_per_100k'] - nat_avg
                 st.metric("vs National Avg", f"{delta:+.1f}", delta=f"{delta:+.1f}")
 
@@ -282,7 +299,7 @@ with st.spinner("Loading route density data..."):
             value_col='routes_per_100k',
             unit='routes per 100,000 population',
             sources=['NaPTAN October 2025', 'BODS TransXChange', 'ONS Census 2021', 'TAG 2024'],
-            rules=['ranking', 'single_region_positioning', 'variation', 'gap_to_investment'],
+            rules=['ranking', 'single_region_positioning', 'subset_summary', 'variation', 'gap_to_investment'],
             min_n=1,
             min_groups=1
         )
@@ -364,8 +381,8 @@ def create_stop_coverage_viz(data):
         margin=dict(l=0, r=0, t=40, b=0)
     )
 
-    # Add national average line
-    national_avg = data['stops_per_1000'].mean()
+    # Add national average line (population-weighted)
+    national_avg = calculate_population_weighted_average(data, 'stops_per_1000')
     fig.add_vline(
         x=national_avg,
         line_dash="dash",
@@ -393,9 +410,9 @@ with st.spinner("Loading stop coverage data..."):
             with col3:
                 st.metric("Population", f"{int(region['population']):,}")
             with col4:
-                # Calculate national average for comparison
+                # Calculate national average for comparison (population-weighted)
                 all_data = load_regional_summary()
-                nat_avg = all_data['stops_per_1000'].mean()
+                nat_avg = calculate_population_weighted_average(all_data, 'stops_per_1000')
                 delta = region['stops_per_1000'] - nat_avg
                 st.metric("vs National Avg", f"{delta:+.1f}", delta=f"{delta:+.1f}")
 
@@ -483,7 +500,7 @@ with st.spinner("Loading stop coverage data..."):
             value_col='stops_per_1000',
             unit='stops per 1,000 population',
             sources=['NaPTAN October 2025', 'BODS TransXChange', 'ONS Census 2021'],
-            rules=['ranking', 'single_region_positioning', 'variation', 'gap_to_investment'],
+            rules=['ranking', 'single_region_positioning', 'subset_summary', 'variation', 'gap_to_investment'],
             min_n=1,
             min_groups=1
         )
@@ -1107,7 +1124,18 @@ with st.spinner("Analyzing urban-rural disparities..."):
     ur_data, lsoa_detail = analyze_urban_rural_coverage(filter_mode, filter_value)
 
     if filter_mode in ['all_urban', 'all_rural', 'region_urban', 'region_rural']:
-        st.info(f"📊 **Note:** Urban-Rural disparity analysis is not available when viewing '{filter_display}'. This section compares urban vs rural areas, so it requires either 'All Regions' or a specific region (with 'All' urban/rural) to be selected.")
+        # Build clear message based on actual filter_mode (not cached filter_display)
+        if 'urban' in filter_mode:
+            filter_type = "Urban Only"
+        else:
+            filter_type = "Rural Only"
+
+        if filter_mode.startswith('region_'):
+            area_desc = f"{filter_value} - {filter_type}"
+        else:
+            area_desc = f"All Regions - {filter_type}"
+
+        st.info(f"📊 **Note:** Urban-Rural disparity analysis is not available when viewing '{area_desc}'. This section compares urban vs rural areas, so it requires either 'All Regions' or a specific region (with 'All' urban/rural) to be selected.")
     elif ur_data is not None and not ur_data.empty:
         # Visualization
         ur_sorted = ur_data.sort_values('stops_per_1000', ascending=False)
