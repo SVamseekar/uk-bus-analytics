@@ -86,7 +86,9 @@ class RankingRule:
 
         best = extrema['max_row']
         worst = extrema['min_row']
-        national_avg = dist['mean']
+        # CRITICAL FIX: Use population-weighted national average from metrics, not simple mean
+        # This ensures consistency between chart annotations and narrative text
+        national_avg = metrics.get('national_avg', dist['mean'])
 
         # Calculate percentages
         best_pct_above = ((best['value'] / national_avg) - 1) * 100
