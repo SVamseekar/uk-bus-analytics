@@ -405,6 +405,8 @@ def calculate_gini_coefficient(values: pd.Series, weights: Optional[pd.Series] =
 
 def format_currency(value: float, precision: int = 0) -> str:
     """Format as £M or £k"""
+    if value is None:
+        return "£0"
     if value >= 1_000_000:
         return f"£{value/1_000_000:.{precision}f}M"
     elif value >= 1_000:
@@ -415,6 +417,8 @@ def format_currency(value: float, precision: int = 0) -> str:
 
 def format_percentage(value: float, precision: int = 0, include_sign: bool = True) -> str:
     """Format as percentage with optional +/- sign"""
+    if value is None:
+        return "0%"
     if include_sign and value > 0:
         return f"+{value:.{precision}f}%"
     return f"{value:.{precision}f}%"

@@ -25,6 +25,42 @@ class InsightEngine:
     def __init__(self):
         self.renderer = TemplateRenderer()
 
+    def _calculate_national_average(self, df: pd.DataFrame, value_col: str) -> float:
+        """
+        Calculate population-weighted national average for per-capita metrics
+
+        For per-capita metrics like routes_per_100k or stops_per_1000, we must NOT
+        take the simple mean of per-capita values (which weights small regions equally).
+        Instead, we recalculate from raw totals weighted by population.
+
+        Args:
+            df: DataFrame with regional data
+            value_col: Column name (e.g., 'routes_per_100k', 'stops_per_1000')
+
+        Returns:
+            Population-weighted national average
+        """
+        if df.empty or 'population' not in df.columns:
+            # Fallback to simple mean if no population data
+            return df[value_col].mean() if value_col in df.columns else 0
+
+        # Map per-capita columns to their raw count columns
+        if value_col == 'routes_per_100k' and 'routes_count' in df.columns:
+            # Recalculate: total routes / total population * 100,000
+            total_routes = df['routes_count'].sum()
+            total_pop = df['population'].sum()
+            return (total_routes / total_pop * 100000) if total_pop > 0 else 0
+
+        elif value_col == 'stops_per_1000' and 'total_stops' in df.columns:
+            # Recalculate: total stops / total population * 1,000
+            total_stops = df['total_stops'].sum()
+            total_pop = df['population'].sum()
+            return (total_stops / total_pop * 1000) if total_pop > 0 else 0
+
+        else:
+            # For non-per-capita metrics, simple mean is fine
+            return df[value_col].mean() if value_col in df.columns else 0
+
     def run(self, df: pd.DataFrame, config: MetricConfig, filters: Dict[str, Any]) -> Dict[str, Any]:
         """
         Generate narrative for a metric
@@ -86,8 +122,27 @@ class InsightEngine:
         # Distribution statistics
         metrics['distribution'] = calc.describe_distribution(df[config.value_col])
 
-        # National average (or mean of current view)
-        metrics['national_avg'] = df[config.value_col].mean()
+        # National average - for single regions, load full dataset
+        # CRITICAL: For per-capita metrics, must use population-weighted average, not simple mean
+        if context.scope == "single_region":
+            # Load full regional summary for true national comparison
+            try:
+                from dashboard.utils.data_loader import load_regional_summary
+                full_df = load_regional_summary()
+                if not full_df.empty and config.value_col in full_df.columns:
+                    # Calculate population-weighted average for per-capita metrics
+                    metrics['national_avg'] = self._calculate_national_average(full_df, config.value_col)
+                    metrics['total_regions'] = len(full_df)
+                else:
+                    metrics['national_avg'] = self._calculate_national_average(df, config.value_col)
+                    metrics['total_regions'] = 1
+            except Exception:
+                # Fallback if import fails
+                metrics['national_avg'] = self._calculate_national_average(df, config.value_col)
+                metrics['total_regions'] = 1
+        else:
+            # For multi-region views, use current data
+            metrics['national_avg'] = self._calculate_national_average(df, config.value_col)
 
         # Extrema (best/worst)
         if context.n_groups >= 2:
@@ -107,17 +162,47 @@ class InsightEngine:
                 }
             }
 
-        # Single region positioning
+        # Single region positioning - calculate rank against full dataset
         if context.scope == "single_region" and config.groupby in df.columns:
             region_row = df.iloc[0]
+            region_name = region_row[config.groupby]
+            region_value = region_row[config.value_col]
 
-            # Load full dataset for national comparison
-            # (In real implementation, this would load cached national summary)
+            # Load full dataset and calculate true rank
+            try:
+                from dashboard.utils.data_loader import load_regional_summary
+                full_df = load_regional_summary()
+
+                if not full_df.empty and config.value_col in full_df.columns:
+                    # Calculate rank: higher values = better rank (rank 1 = highest value)
+                    full_df_sorted = full_df.sort_values(config.value_col, ascending=False).reset_index(drop=True)
+
+                    # Find this region's rank in the full dataset
+                    if config.groupby in full_df.columns:
+                        region_in_full = full_df[full_df[config.groupby] == region_name]
+                        if not region_in_full.empty:
+                            true_rank = (full_df[config.value_col] > region_value).sum() + 1
+                            total_regions = len(full_df)
+                        else:
+                            true_rank = 0
+                            total_regions = len(full_df)
+                    else:
+                        true_rank = 1
+                        total_regions = 1
+                else:
+                    true_rank = 1
+                    total_regions = 1
+            except Exception:
+                # Fallback if loading fails
+                true_rank = region_row.get('rank', region_row.get(f'{config.value_col}_rank', 1))
+                total_regions = 1
+
             metrics['this_region'] = {
-                'name': region_row[config.groupby],
-                'value': region_row[config.value_col],
-                'rank': region_row.get('rank', region_row.get(f'{config.value_col}_rank', 0)),
-                'pct_vs_national': ((region_row[config.value_col] / metrics['national_avg']) - 1) * 100 if metrics['national_avg'] != 0 else 0,
+                'name': region_name,
+                'value': region_value,
+                'rank': true_rank,
+                'total_regions': total_regions,
+                'pct_vs_national': ((region_value / metrics['national_avg']) - 1) * 100 if metrics['national_avg'] != 0 else 0,
                 'population': region_row.get('population', 0)
             }
 

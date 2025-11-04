@@ -120,7 +120,8 @@ class SingleRegionPositioningRule:
     def emit(self, ctx: ViewContext, metrics: Dict[str, Any]) -> List[Insight]:
         region = metrics['this_region']
         national_avg = metrics['national_avg']
-        total_regions = metrics.get('total_regions', 9)
+        # Use total_regions from this_region dict (calculated against full dataset)
+        total_regions = region.get('total_regions', metrics.get('total_regions', 9))
 
         return [Insight(
             kind='summary',
@@ -132,7 +133,49 @@ class SingleRegionPositioningRule:
                 'total_regions': total_regions,
                 'pct_vs_national': region['pct_vs_national'],
                 'national_avg': national_avg,
+                'population': region.get('population', 0) / 1e6,  # Convert to millions for template
                 'unit': metrics.get('unit', '')
+            }
+        )]
+
+
+class SubsetSummaryRule:
+    """Generate descriptive summary for subset/filtered views (e.g., Urban/Rural)"""
+
+    name = "subset_summary"
+    requirements = {}
+
+    def applies(self, ctx: ViewContext, metrics: Dict[str, Any]) -> bool:
+        return ctx.scope == "subset" and ctx.n_groups == 1
+
+    def emit(self, ctx: ViewContext, metrics: Dict[str, Any]) -> List[Insight]:
+        # Extract basic stats from the single aggregated row
+        dist = metrics.get('distribution', {})
+        mean_value = dist.get('mean', 0)
+        national_avg = metrics.get('national_avg', 0)
+
+        # Calculate difference from national
+        pct_vs_national = ((mean_value / national_avg) - 1) * 100 if national_avg > 0 else 0
+
+        # Determine filter description
+        urban_rural = ctx.filters.get('urban_rural', '')
+        region = ctx.region if ctx.region else 'All regions'
+
+        if urban_rural:
+            filter_desc = f"{urban_rural} areas in {region}" if ctx.region else f"{urban_rural} areas nationwide"
+        else:
+            filter_desc = f"{region} (filtered subset)"
+
+        return [Insight(
+            kind='summary',
+            key='subset_description',
+            payload={
+                'filter_desc': filter_desc,
+                'value': mean_value,
+                'pct_vs_national': pct_vs_national,
+                'national_avg': national_avg,
+                'unit': metrics.get('unit', ''),
+                'above_below': 'above' if pct_vs_national > 0 else 'below'
             }
         )]
 
@@ -273,6 +316,7 @@ class VariationRule:
 # Register all rules
 INSIGHT_REGISTRY.register(RankingRule())
 INSIGHT_REGISTRY.register(SingleRegionPositioningRule())
+INSIGHT_REGISTRY.register(SubsetSummaryRule())
 INSIGHT_REGISTRY.register(CorrelationRule())
 INSIGHT_REGISTRY.register(OutlierRule())
 INSIGHT_REGISTRY.register(GapToInvestmentRule())

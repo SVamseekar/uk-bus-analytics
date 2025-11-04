@@ -70,9 +70,11 @@ def resolve_context(df: pd.DataFrame, groupby_col: str, filters: dict) -> ViewCo
 
     # Determine scope
     region_filter = filters.get('region')
+    urban_rural_filter = filters.get('urban_rural')
 
-    if n_groups == 1 and region_filter and region_filter != 'All Regions':
-        # Single region selected
+    if n_groups == 1 and region_filter and region_filter != 'All Regions' and not urban_rural_filter:
+        # Single region selected WITHOUT urban/rural filter
+        # Urban/rural subsets should be treated as "subset", not "single_region"
         return ViewContext(
             scope="single_region",
             n_groups=1,

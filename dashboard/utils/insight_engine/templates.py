@@ -47,6 +47,13 @@ Performance is close to the national benchmark, indicating typical service provi
 """.strip())
 
 
+SUBSET_DESCRIPTION_TEMPLATE = env.from_string("""
+**{{ filter_desc }}** has **{{ value|num(1) }} {{ unit }}**, which is {{ pct_vs_national|pct(0) }} {{ above_below }} the national average of {{ national_avg|num(1) }} {{ unit }}.
+
+This filtered view shows a subset of the data. Comparative rankings are not available for Urban/Rural subsets, as they represent different service provision contexts.
+""".strip())
+
+
 # ============================================================================
 # KEY FINDING TEMPLATES
 # ============================================================================
@@ -112,6 +119,7 @@ class TemplateRenderer:
         self.templates = {
             ('summary', 'ranking'): RANKING_TEMPLATE,
             ('summary', 'single_region_position'): SINGLE_REGION_TEMPLATE,
+            ('summary', 'subset_description'): SUBSET_DESCRIPTION_TEMPLATE,
             ('key_finding', 'variation'): VARIATION_TEMPLATE,
             ('key_finding', 'correlation'): CORRELATION_TEMPLATE,
             ('key_finding', 'outliers'): OUTLIER_TEMPLATE,

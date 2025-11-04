@@ -759,6 +759,9 @@ st.markdown("---")
 # SECTION A5: Walking Distance Analysis
 # ============================================================================
 
+# Force re-execution when filters change
+_a5_key = f"a5_{filter_mode}_{filter_value}"
+
 st.header("📊 A5: Walking Distance Analysis")
 st.markdown("*What is the average distance from a household to the nearest bus stop in each region?*")
 
@@ -931,6 +934,9 @@ st.markdown("---")
 # SECTION A6: Accessibility Standard Compliance
 # ============================================================================
 
+# Force re-execution when filters change
+_a6_key = f"a6_{filter_mode}_{filter_value}"
+
 st.header("📊 A6: Accessibility Standard Compliance")
 st.markdown("*Which regions fail the DfT 400m accessibility standard?*")
 
@@ -1050,6 +1056,9 @@ st.markdown("---")
 # ============================================================================
 # SECTION A7: Urban-Rural Coverage Disparity
 # ============================================================================
+
+# Force re-execution when filters change
+_a7_key = f"a7_{filter_mode}_{filter_value}"
 
 st.header("📊 A7: Urban-Rural Coverage Disparity")
 st.markdown("*How does bus coverage vary between urban and rural areas?*")
