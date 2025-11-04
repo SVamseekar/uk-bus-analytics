@@ -1,6 +1,19 @@
 # UK Bus Analytics Platform - FINAL IMPLEMENTATION ROADMAP (Part 2)
 
-**Continued from PART 1** | Date: November 2, 2025
+**Continued from PART 1** | Date: November 2, 2025 | **Updated:** November 4, 2025
+
+---
+
+## ⚠️ READ THIS FIRST: Insight Engine Built in Week 1
+
+**All categories in Week 2-6 use the Insight Engine built in Task 1.4 (Week 1, Day 3).**
+
+Every section follows this pattern:
+1. Load data → 2. Create viz → 3. Define MetricConfig → 4. Call ENGINE.run() → 5. Dynamic narrative
+
+**No hardcoded narratives. All text generated dynamically.**
+
+See PART 1 for full Insight Engine architecture docs.
 
 ---
 
@@ -25,10 +38,10 @@
 ### Status Check Before Week 4
 
 **Required Completions:**
-- ✅ Week 1: Foundation repaired (BCR updated, TransXChange parsed, 3 datasets downloaded)
-- ✅ Week 2-3: 5 core categories complete (A, B, C, D, F) = 34 questions answered
+- ✅ Week 1: Foundation repaired + **Insight Engine built** (BCR updated, TransXChange parsed, 3 datasets downloaded)
+- ✅ Week 2-3: 5 core categories complete (A, B, C, D, F) = 34 questions answered **using Insight Engine**
 - ✅ Homepage: 5 map views working with real data
-- ✅ Category template proven and replicable
+- ✅ Category template + **Insight Engine** proven and replicable across all 50 sections
 
 **Entering Week 4 With:**
 - 34/50 questions complete (68%)

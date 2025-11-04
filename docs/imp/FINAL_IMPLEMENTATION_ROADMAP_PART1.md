@@ -1,10 +1,41 @@
 # UK Bus Analytics Platform - FINAL IMPLEMENTATION ROADMAP (Part 1)
 
-**Date:** November 2, 2025
-**Status:** Ready to Execute
+**Date:** November 2, 2025 | **Last Updated:** November 4, 2025
+**Status:** Week 1 Days 1-3 COMPLETE + Insight Engine Built
 **Timeline:** 6 weeks (aggressive, disciplined execution)
 **Deployment:** Hugging Face Spaces (FREE)
 **Philosophy:** Data stories for policy makers, not just dashboards
+
+---
+
+## 🚨 CRITICAL ARCHITECTURAL UPDATE (Nov 4, 2025)
+
+**During Task 1.4, we built a comprehensive Insight Engine to eliminate hardcoded narratives across all 50+ sections.**
+
+**What Changed:**
+- ✅ All dashboard sections now use **dynamic narrative generation**
+- ✅ Zero hardcoded values (£42M, BCR 2.1, correlations, etc.)
+- ✅ Context-aware narratives (adapts to filters intelligently)
+- ✅ Evidence-gated insights (only shows what data supports)
+- ✅ TAG 2024 & HM Treasury Green Book compliant
+
+**Insight Engine: 7 modules, 1,633 lines**
+```
+dashboard/utils/insight_engine/
+├── context.py      - Filter-aware view resolution
+├── calc.py         - TAG 2024 constants + calculators
+├── config.py       - Metric configurations
+├── rules.py        - 6 evidence-gated insight rules
+├── templates.py    - Jinja2 consulting-tone templates
+├── engine.py       - Orchestrator
+└── README.md       - Architecture docs
+```
+
+**Impact:**
+- Task 1.4: 8h → 12h (one-time investment)
+- Future sections: 3h → 2h each (engine does narrative work)
+- Maintenance: Zero (no hardcoded text to update)
+- Quality: Professional consulting standard across all 50 sections
 
 ---
 
@@ -146,6 +177,149 @@
 
 <a name="project-philosophy"></a>
 ## 3. PROJECT PHILOSOPHY - LESSONS FROM THE JOURNEY
+
+### 🎯 GLOBAL DESIGN PHILOSOPHY (APPLIES TO ENTIRE PLATFORM)
+
+**CRITICAL: This is NOT an academic research tool. This is a professional consulting intelligence platform.**
+
+#### User Interface & Language Style
+
+**❌ NEVER USE (Academic/Questionnaire Style):**
+- "8 questions analyzing..."
+- "Question A1:", "Question D24:"
+- "📖 Data Story"
+- "💡 Key Insight"
+- "Answer:", "Analysis:", "Findings:"
+- Academic section numbering (1.1, 1.2, etc.)
+- Research paper terminology
+- Overly technical jargon without context
+
+**✅ ALWAYS USE (Consulting Report Style):**
+- **Professional section titles:** "Regional Route Density Analysis", "Service Coverage Assessment", "Investment Priority Zones"
+- **Executive language:** "Key Finding", "Policy Recommendation", "Investment Requirement"
+- **Actionable headers:** "What This Means", "Action Required", "Expected Impact"
+- **Consulting firm tone:** McKinsey, Deloitte, PwC style
+- **Decision-maker focus:** Clear, concise, actionable
+- **Evidence-based:** Data-driven but accessible
+
+#### Visual Design
+
+**❌ AVOID:**
+- Cluttered dashboards with too many metrics
+- Academic chart titles ("Figure 1: Distribution of...")
+- Unnecessary labels and annotations
+- Question IDs visible to users (A1, D24, etc.)
+
+**✅ IMPLEMENT:**
+- Clean, spacious layouts
+- Professional chart titles ("Bus Routes per 100,000 Population by Region")
+- Minimal but meaningful annotations
+- Question IDs only in backend code/comments
+- White space and visual hierarchy
+- OECD/World Bank report aesthetic
+
+#### Content Structure
+
+**Every Analysis Section Should Have:**
+1. **Professional Title** - Clear, descriptive (not "Question X")
+2. **Visualization** - Clean chart/map (no "📊 Visualization" label needed)
+3. **Narrative** - Executive summary style (2-3 paragraphs max)
+4. **Key Finding** - One critical insight highlighted
+5. **Policy Recommendation** - Actionable next steps with BCR/cost estimates
+6. **Related Analysis Links** - Cross-references to other sections
+
+#### Navigation & Organization
+
+**Homepage:**
+- Interactive UK map (no labels like "5 switchable views")
+- National overview metrics (clean cards)
+- Auto-generated insights (professional language)
+
+**Category Pages:**
+- Single scrollable page per category
+- Professional category titles in sidebar
+- No mention of "X questions" to users
+- Smooth scrolling between analysis sections
+
+**Cross-Linking:**
+- "View related analysis" (not "See Question D24")
+- Contextual recommendations
+- Intelligent navigation flows
+
+#### Target Audience Adaptation
+
+**For Policy Makers:**
+- Lead with impact and BCR
+- Clear investment requirements
+- Headline findings first, details second
+
+**For Transport Company CEOs:**
+- Efficiency metrics prominent
+- Profitability implications
+- Operational optimization opportunities
+
+**For Urban Planners:**
+- Spatial analysis emphasis
+- Gap identification clear
+- Service recommendations specific
+
+**For Researchers:**
+- Methodology transparency
+- Data quality metrics
+- Reproducibility notes
+
+#### Example Transformation
+
+**❌ BEFORE (Academic Style):**
+```
+QUESTION A1: Which regions have the highest number of bus routes per capita?
+
+📖 DATA STORY
+Manchester has 42 routes per 100k...
+
+💡 KEY INSIGHT
+Route density varies...
+```
+
+**✅ AFTER (Consulting Style):**
+```
+Regional Route Density Analysis
+
+Manchester leads the nation with 42 routes per 100,000 population,
+providing extensive network connectivity and multiple journey options
+for residents. In contrast, East Midlands operates only 5.7 routes
+per 100k, limiting travel options for 4.8 million residents.
+
+Key Finding
+Route density varies 7.4x between regions. Network design and policy
+choices matter more than population scale alone - smaller regions can
+achieve high route density through strategic investment.
+
+Policy Recommendation
+Five regions fall below the national average of 8.3 routes per 100k.
+Estimated investment to bring bottom 3 regions to average: £42M
+(BCR: 2.1 - High value for money per HM Treasury Green Book standards).
+
+Priority actions: (1) Identify underserved corridors, (2) Design routes
+connecting employment centers, (3) Integrate with existing services.
+
+[View Optimization Scenarios →]
+```
+
+---
+
+**This philosophy applies to:**
+- All 10 category pages
+- Homepage design
+- All visualizations
+- All data stories
+- AI assistant responses
+- Export reports
+- Documentation shown to users
+
+**Exception:** Internal code comments and developer documentation can use technical references (A1, D24, etc.)
+
+---
 
 ### The Honest Reset (October 31, 2025)
 
@@ -1256,13 +1430,21 @@ wc -l data/raw/boundaries/rural_urban_2011.csv
 
 ---
 
-### DAY 3: Build Category Page Template
+### DAY 3: Build Category Page Template + Insight Engine
 
-#### Task 1.4: Create Reusable Category Component (8 hours)
+#### Task 1.4: Create Reusable Category Component + Dynamic Narrative System (12 hours)
 
-**Goal:** Build ONE perfect category page, then replicate for all 10 categories
+**CRITICAL ARCHITECTURAL DECISION (Nov 4, 2025):**
 
-**File:** `dashboard/pages/category_template.py`
+During implementation, discovered that hardcoded narratives (£42M investments, BCR 2.1, "best/worst" comparisons) would create maintenance nightmares across 50+ sections.
+
+**Solution:** Build a **Hybrid Insight Engine** that generates fully dynamic, context-aware narratives.
+
+**Goal:** Build ONE perfect category page with intelligent narrative generation, then replicate for all 10 categories
+
+**Files:**
+- `dashboard/components/category_template.py` - UI template
+- `dashboard/utils/insight_engine/` - Dynamic narrative generation system
 
 ```python
 import streamlit as st
@@ -1467,7 +1649,135 @@ render_category_page(COVERAGE_CONFIG)
 - Check story narratives make sense
 - Test region filtering works
 
-**Deliverable:** Category A (Coverage) page 100% complete with real data
+**Architecture: Insight Engine System**
+
+To avoid hardcoding narratives across 50+ sections, we build a **5-layer dynamic narrative system**:
+
+**Layer 1: Context Resolver**
+- Detects filter state (all regions / single region / subset)
+- Prevents "best/worst" comparisons on single-row datasets
+- Adapts narrative structure based on data shape
+
+**Layer 2: Centralized Calculators (`calc.py`)**
+- TAG 2024 time values, carbon, BCR thresholds (single source of truth)
+- BCR calculation wrapper (delegates to existing Green Book calculator)
+- Statistical functions: correlations with p-values, CIs, effect sizes
+- Equity metrics: Gini, Lorenz curves, Palma ratio
+- Gap analysis: investment requirements, routes needed, population affected
+- Ranking and distance from benchmarks
+
+**Layer 3: Insight Rules (`rules.py`)**
+- Small, testable rules that analyze data patterns
+- Evidence-gated: only fire when statistical thresholds met
+- Examples: RankingRule, SingleRegionPositioningRule, CorrelationRule, OutlierRule, GapToInvestmentRule
+- Each rule has `applies(context, metrics)` and `emit(context, metrics)` methods
+- Suppresses insights when data insufficient (low n, high p-values, weak correlations)
+
+**Layer 4: Template Renderer (`templates.py`)**
+- Jinja2 templates with conditional blocks
+- Consulting-tone text with dynamic value injection
+- Context-aware: different templates for all-regions vs single-region vs subsets
+- No hardcoded numbers - all values from calculators
+
+**Layer 5: Evidence & Guardrails**
+- Data sufficiency checks (minimum n, match rate thresholds)
+- Source stamping (NaPTAN, BODS, ONS, TAG 2024)
+- Audit payload (JSON with all underlying numbers for QA)
+- Unit tests for calculators, golden tests for narratives
+
+**InsightEngine Orchestrator (`engine.py`):**
+```python
+class InsightEngine:
+    def run(self, df, metric_config, filters):
+        # 1. Resolve context (all-regions/single/subset)
+        context = resolve_context(df, metric_config.groupby, filters)
+
+        # 2. Compute metrics once (centralized calculators)
+        metrics = compute_metrics(df, metric_config, context)
+
+        # 3. Select applicable insight rules
+        insights = []
+        for rule in registry.for_metric(metric_config.id):
+            if data_sufficient(metrics, rule.requirements) and rule.applies(context, metrics):
+                insights.extend(rule.emit(context, metrics))
+
+        # 4. Render templates
+        blocks = [render_template(context, insight) for insight in insights]
+
+        return {
+            'summary': blocks['narrative'],
+            'key_finding': blocks['key_finding'],
+            'recommendation': blocks['policy'],
+            'investment': blocks['investment'],
+            'sources': metric_config.sources,
+            'evidence': metrics  # For QA/export
+        }
+```
+
+**Benefits:**
+- ✅ Zero hardcoded values - all numbers computed dynamically
+- ✅ Context-aware - adapts to filter selections intelligently
+- ✅ Evidence-gated - only shows insights supported by data
+- ✅ Reusable across all 50 sections - DRY architecture
+- ✅ Testable - unit tests for calculators, golden tests for narratives
+- ✅ Maintainable - TAG values updated once, reflected everywhere
+
+**Deliverable:** Category A (Coverage) page 100% complete with dynamic Insight Engine
+
+---
+
+### ✅ TASK 1.4 COMPLETION STATUS (November 4, 2025)
+
+**STATUS: COMPLETE** (Extended from 8 hours to 12 hours to build full Insight Engine)
+
+**Files Created:**
+
+1. **Insight Engine Core** (`dashboard/utils/insight_engine/`)
+   - ✅ `__init__.py` - Package exports
+   - ✅ `context.py` (154 lines) - ViewContext, resolve_context(), data_sufficient()
+   - ✅ `calc.py` (388 lines) - TAG 2024 constants + all calculators
+   - ✅ `config.py` (26 lines) - MetricConfig dataclass
+   - ✅ `rules.py` (260 lines) - 6 insight rules + registry
+   - ✅ `templates.py` (185 lines) - Jinja2 templates for all contexts
+   - ✅ `engine.py` (220 lines) - InsightEngine orchestrator
+   - ✅ `README.md` - Architecture docs
+
+2. **Dashboard Pages**
+   - ✅ `dashboard/pages/01_Coverage_Accessibility_v2.py` (290 lines) - Uses InsightEngine
+   - ✅ `dashboard/pages/01_Coverage_Accessibility.py` - Original (preserved for reference)
+
+3. **Supporting Infrastructure**
+   - ✅ `dashboard/components/category_template.py` (302 lines) - UI template
+   - ✅ `dashboard/utils/data_loader.py` (238 lines) - Cached data loading
+   - ✅ `dashboard/Home.py` (95 lines) - Homepage
+   - ✅ `utils/create_regional_summary.py` (182 lines) - Data aggregation
+
+**Total Code Written:** ~2,340 lines
+
+**Fixes Achieved:**
+- ✅ Single-region filter bug - No more "best/worst" on 1-row datasets
+- ✅ Hardcoded values eliminated - All numbers computed dynamically (£42M, BCR 2.1, etc.)
+- ✅ Generic insights replaced - Evidence-gated, data-driven findings
+- ✅ Context-aware narratives - Adapts to all-regions/single-region/subset views
+- ✅ Reusable across 50 sections - DRY architecture with centralized calculations
+
+**Testing Instructions:**
+```bash
+# Test new engine-powered page
+python3 -m streamlit run dashboard/pages/01_Coverage_Accessibility_v2.py
+
+# Compare with original (hardcoded version)
+python3 -m streamlit run dashboard/pages/01_Coverage_Accessibility.py
+```
+
+**Engine Features:**
+- TAG 2024 compliant (time values, carbon, BCR bands)
+- HM Treasury Green Book appraisal methodology
+- Statistical significance testing (p-values, CIs)
+- Evidence-gated insights (only shows what data supports)
+- Professional consulting tone throughout
+
+**Next:** Task 1.5 - Complete 6 remaining Category A sections using the engine
 
 ---
 
@@ -1475,36 +1785,56 @@ render_category_page(COVERAGE_CONFIG)
 
 #### Task 1.5: Answer All 8 Coverage Questions (16 hours)
 
-**For Each Question (A1 through A8):**
+**Now uses Insight Engine** - All 8 sections will use the dynamic narrative generation system built in Task 1.4
+
+**For Each Question (A3 through A8):** *(A1 and A2 already complete)*
 
 1. **Write data loading function** (30 min)
+   - Follow pattern from A1/A2
+   - Use dashboard/utils/data_loader.py functions
    - Load relevant datasets
    - Apply filters
    - Calculate metrics
 
 2. **Create visualization** (1 hour)
-   - Choose appropriate chart type
-   - Professional styling
-   - Interactive features (hover, click)
+   - Use Plotly Express or Graph Objects
+   - Professional chart titles (no "Figure 1:")
+   - Color schemes: Greens for positive, Reds for gaps
+   - Interactive tooltips with data values
 
-3. **Generate data story** (1 hour)
-   - Narrative explaining findings
-   - Key insight highlighting pattern
-   - Policy implication with BCR estimate
-   - Related links to other categories
+3. **Define MetricConfig and use Insight Engine** (30 min)
+   ```python
+   config = MetricConfig(
+       id='your_metric_id',
+       groupby='region_name',
+       value_col='your_metric_column',
+       unit='your unit description',
+       sources=['NaPTAN', 'BODS', 'ONS 2021', 'TAG 2024'],
+       rules=['ranking', 'single_region_positioning', 'variation', 'gap_to_investment']
+   )
+
+   result = ENGINE.run(data, config, filters)
+   return result  # Contains summary, key_finding, recommendation, investment
+   ```
+   - **NO hardcoded narratives** - Engine generates everything dynamically
+   - Engine handles all contexts (all-regions/single-region/subset)
+   - Automatically calculates BCR, investment costs, correlations, gaps
 
 4. **Test with real data** (30 min)
    - Verify numbers correct
-   - Check story makes sense
-   - Test filters work
+   - Test filters work (all-regions vs single-region)
+   - Check narrative adapts properly
 
-**Expected Output Per Question:** ~3 hours × 8 questions = 24 hours work, but parallelizable
+**Expected Time Per Question:** ~2 hours (reduced from 3 with Insight Engine)
+- 30 min: Data loading
+- 1 hour: Visualization
+- 30 min: MetricConfig + engine integration (replaces 1 hour of manual narrative writing)
 
 **Questions Implementation Order:**
 
 **Day 4 (8 hours):**
-- A1: Routes per capita (DONE in template)
-- A2: Stops per 1,000 residents
+- ✅ A1: Routes per capita (COMPLETE with Insight Engine)
+- ✅ A2: Stops per 1,000 residents (COMPLETE with Insight Engine)
 - A3: Stop density vs population density scatter
 - A4: Bus deserts count
 
@@ -1553,6 +1883,15 @@ Proceed to Week 2
 
 <a name="week-2-3"></a>
 ## 7. WEEK 2-3: BUILD CORE CATEGORIES (10 Days)
+
+**CRITICAL: All categories use Insight Engine built in Week 1 Task 1.4**
+
+Every section follows this pattern:
+1. Load data with data_loader functions
+2. Create visualization (Plotly)
+3. Define MetricConfig for the section
+4. Call `ENGINE.run(data, config, filters)` → Returns dynamic narrative
+5. No hardcoded narratives - all text generated by engine
 
 ### Week 2: Days 6-10
 

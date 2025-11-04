@@ -1,0 +1,298 @@
+.
+├── DATA_FRESHNESS_REPORT.md
+├── IMPLEMENTATION_STATUS.md
+├── LAUNCH_INSTRUCTIONS.md
+├── NEXT_CHAT_CONTEXT.md
+├── README.md
+├── SESSION_COMPLETION_SUMMARY.md
+├── SESSION_SUMMARY.md
+├── TESTING_INSTRUCTIONS.md
+├── analysis
+│   └── spatial
+│       ├── 01_compute_spatial_metrics.py
+│       ├── 01_compute_spatial_metrics_v2.py
+│       ├── 02_train_ml_models.py
+│       ├── 04_economic_impact_modeling.py
+│       ├── 05_policy_scenario_simulator.py
+│       └── utils
+├── analytics
+│   ├── 05_correlation_analysis.py
+│   ├── README.md
+│   ├── data
+│   │   └── lsoa_analysis_results.csv
+│   ├── descriptive_analysis.py
+│   ├── images
+│   │   ├── correlation
+│   │   └── descriptive
+│   └── outputs
+│       ├── correlation
+│       ├── descriptive
+│       └── spatial
+├── config
+│   ├── api_keys
+│   ├── data_sources
+│   │   └── operators.json
+│   ├── ingestion_config.yaml
+│   └── settings.py
+├── conversation.md
+├── dashboard
+│   ├── DESIGN_IMPLEMENTATION.md
+│   ├── Home.py
+│   ├── app.py
+│   ├── assets
+│   │   └── styles.css
+│   ├── modules
+│   │   ├── coverage_dashboard.py
+│   │   └── spatial
+│   ├── pages
+│   │   ├── 01_Service_Coverage.py
+│   │   ├── 02_Equity_Intelligence.py
+│   │   ├── 03_Investment_Appraisal.py
+│   │   ├── 04_Policy_Scenarios.py
+│   │   ├── 05_Network_Optimization.py
+│   │   └── 06_Policy_Assistant.py
+│   └── utils
+│       ├── __init__.py
+│       ├── data_loader.py
+│       ├── data_sources.py
+│       ├── ml_loader.py
+│       ├── questions_loader.py
+│       ├── semantic_search.py
+│       └── ui_components.py
+├── data
+│   ├── mapping
+│   │   └── policy_questions_visual_framework.json
+│   ├── pipeline_status_report.json
+│   ├── processed
+│   │   ├── outputs
+│   │   └── regions
+│   ├── raw
+│   │   ├── boundaries
+│   │   ├── demographics
+│   │   ├── naptan
+│   │   └── regions
+│   └── staging
+├── data_pipeline
+│   ├── 01_data_ingestion.py
+│   ├── 02_data_processing.py
+│   ├── 03_data_validation.py
+│   ├── 04_descriptive_analytics.py
+│   └── README.md
+├── docs
+│   ├── 01. PROJECT_PLAN_CONSULTING_GRADE.md
+│   ├── 02. TECHNICAL_IMPLEMENTATION_PLAN_UK_BUS_INTELLIGENCE.md
+│   ├── 03. TRANSLATION_GUIDE_CONSULTING_TO_TECHNICAL.md
+│   ├── 04. TRANSFORMATION_SUMMARY.md
+│   ├── 05. PROJECT_STATUS_AND_PLAN.md
+│   ├── 06 IMPLEMENTATION PROGRESS.md
+│   ├── 07 DATA_ACCURACY_REPORT.md
+│   ├── 08 TECHNICAL_DESIGN_SPECIFICATION.md
+│   ├── 09 IMPLEMENTATION_SUMMARY.md
+│   ├── 10 IMPLEMENTATION_COMPLETE.md
+│   ├── 11 QUICK_START_GUIDE.md
+│   ├── 12 IMPLEMENTATION_COMPLETE.md
+│   ├── ANALYTICS_GUIDE.md
+│   ├── CLEANUP_PLAN.md
+│   ├── CLEANUP_SUMMARY.md
+│   ├── DIRECTORY_GUIDE.md
+│   ├── ENHANCED_QUESTIONS_ECONOMIC_POLICY.md
+│   ├── IMPLEMENTATION_SUMMARY_ECONOMIC_POLICY.md
+│   ├── LAUNCH_INSTRUCTIONS.md
+│   ├── PROJECT_STRUCTURE.md
+│   ├── QUICKSTART.md
+│   ├── QUICK_START_ECONOMIC_MODULES.md
+│   ├── README.md
+│   ├── REORGANIZATION_SUMMARY.md
+│   ├── WHATS_BEEN_ENHANCED.md
+│   ├── guides
+│   │   └── MANUAL_DOWNLOAD_GUIDE.md
+│   └── reports
+│       ├── FIXED_LSOA_REPORT.md
+│       ├── PHASE3_COMPLETION_REPORT.md
+│       ├── PROCESSING_COMPLETE_REPORT.md
+│       ├── PROJECT_STATUS_REPORT.md
+│       └── READY_TO_LAUNCH.md
+├── logs
+│   ├── analytics_2025-10-28_16-32-13_173713.log
+│   ├── analytics_2025-10-28_16-45-35_958206.log
+│   ├── analytics_2025-10-28_16-59-58_919238.log
+│   ├── correlation_2025-10-28_16-35-31_834087.log
+│   ├── correlation_2025-10-28_16-46-07_249688.log
+│   ├── correlation_2025-10-28_17-01-27_738445.log
+│   ├── descriptive_analysis_2025-09-29_16-07-00_876681.log
+│   ├── descriptive_analysis_2025-09-29_16-14-36_831765.log
+│   ├── descriptive_analysis_2025-09-29_16-31-50_755065.log
+│   ├── descriptive_analysis_2025-09-29_16-35-46_598038.log
+│   ├── final_lsoa_2025-09-29_14-48-28_658437.log
+│   ├── final_lsoa_2025-09-29_14-49-57_151071.log
+│   ├── ingestion_2025-09-27_16-19-08_029515.log
+│   ├── ingestion_2025-09-27_17-11-41_600984.log
+│   ├── ingestion_2025-09-27_17-15-29_325890.log
+│   ├── ingestion_2025-09-27_17-19-09_951798.log
+│   ├── ingestion_2025-09-27_17-21-00_183970.log
+│   ├── ingestion_2025-09-27_17-24-32_021390.log
+│   ├── ingestion_2025-09-27_18-34-09_686262.log
+│   ├── ingestion_2025-09-27_18-43-27_767786.log
+│   ├── ingestion_2025-09-27_18-46-22_952575.log
+│   ├── ingestion_2025-09-27_18-48-52_003002.log
+│   ├── ingestion_2025-09-27_18-52-09_926960.log
+│   ├── ingestion_2025-09-27_18-54-00_477210.log
+│   ├── ingestion_2025-09-27_19-07-20_043311.log
+│   ├── ingestion_2025-09-27_20-54-34_101296.log
+│   ├── ingestion_2025-09-28_12-23-02_804274.log
+│   ├── ingestion_2025-09-28_12-25-52_581151.log
+│   ├── ingestion_2025-09-28_13-53-57_470883.log
+│   ├── ingestion_2025-09-28_14-19-07_156182.log
+│   ├── ingestion_2025-09-28_14-47-09_166485.log
+│   ├── ingestion_2025-09-29_14-10-33_757275.log
+│   ├── ingestion_2025-10-03_16-36-25_058970.log
+│   ├── ingestion_2025-10-03_17-36-55_572972.log
+│   ├── ingestion_2025-10-03_17-55-28_398869.log
+│   ├── ingestion_2025-10-17_17-39-59_674133.log
+│   ├── ingestion_2025-10-17_17-44-13_760333.log
+│   ├── ingestion_2025-10-17_17-58-43_917312.log
+│   ├── ingestion_2025-10-17_17-59-00_243178.log
+│   ├── ingestion_2025-10-17_17-59-40_928780.log
+│   ├── ingestion_2025-10-17_18-07-00_186520.log
+│   ├── ingestion_2025-10-17_18-08-52_227155.log
+│   ├── ingestion_2025-10-17_18-13-59_993288.log
+│   ├── ingestion_2025-10-17_18-17-42_072291.log
+│   ├── ingestion_2025-10-17_18-19-23_748265.log
+│   ├── lsoa_linkage_2025-09-29_14-37-15_532617.log
+│   ├── lsoa_linkage_2025-09-29_14-38-29_198649.log
+│   ├── lsoa_linkage_2025-09-29_14-40-06_504271.log
+│   ├── processing_2025-09-29_14-12-18_172287.log
+│   ├── processing_2025-09-29_14-28-26_960088.log
+│   ├── processing_2025-09-29_14-30-23_969544.log
+│   ├── processing_2025-09-29_14-33-20_033031.log
+│   ├── processing_2025-09-29_14-50-45_109075.log
+│   ├── processing_2025-09-29_14-51-59_102852.log
+│   ├── processing_2025-09-29_14-52-43_466332.log
+│   ├── processing_2025-09-29_14-53-38_199458.log
+│   ├── processing_2025-09-29_14-54-20_001548.log
+│   ├── processing_2025-10-03_16-48-20_349606.log
+│   ├── processing_2025-10-03_17-02-24_495250.log
+│   ├── processing_2025-10-03_17-03-13_191369.log
+│   ├── processing_2025-10-17_22-26-42_759652.log
+│   ├── processing_2025-10-17_22-32-23_349635.log
+│   ├── processing_2025-10-17_22-34-04_241069.log
+│   ├── processing_2025-10-17_22-34-59_349407.log
+│   ├── processing_2025-10-17_22-41-19_554630.log
+│   ├── processing_2025-10-17_22-42-14_084624.log
+│   ├── processing_2025-10-17_22-49-47_913937.log
+│   ├── processing_2025-10-17_22-50-49_641048.log
+│   ├── processing_2025-10-17_22-52-54_417096.log
+│   ├── processing_2025-10-17_22-54-23_023590.log
+│   ├── processing_2025-10-17_23-09-00_284871.log
+│   ├── processing_2025-10-17_23-10-37_602809.log
+│   ├── processing_2025-10-17_23-22-37_604008.log
+│   ├── processing_2025-10-17_23-23-41_978269.log
+│   ├── processing_2025-10-17_23-26-54_786865.log
+│   ├── processing_2025-10-17_23-27-59_789641.log
+│   ├── processing_2025-10-28_15-24-17_675013.log
+│   ├── processing_2025-10-28_15-47-18_593993.log
+│   ├── spatial_lsoa_2025-09-29_14-43-20_999170.log
+│   ├── spatial_lsoa_2025-09-29_14-45-48_789990.log
+│   ├── spatial_lsoa_2025-09-29_14-46-22_128897.log
+│   ├── validation_2025-09-29_14-33-43_420989.log
+│   ├── validation_2025-09-29_14-34-49_483490.log
+│   ├── validation_2025-10-28_15-50-59_425673.log
+│   └── validation_2025-10-28_16-24-09_123655.log
+├── models
+│   ├── anomaly_detector.pkl
+│   ├── coverage_predictor.pkl
+│   ├── policy_qa_system.faiss
+│   ├── policy_qa_system.pkl
+│   ├── policy_qa_system_advanced.faiss
+│   ├── policy_qa_system_advanced.pkl
+│   └── route_clustering.pkl
+├── notebooks
+├── reports.md
+├── requirements.txt
+├── run_dashboard.sh
+├── scripts
+│   ├── build_advanced_knowledge_base.py
+│   ├── build_knowledge_base.py
+│   ├── check_downloads.py
+│   ├── merge_transport_to_regions.sh
+│   ├── run_dashboard.sh
+│   ├── status.sh
+│   └── update_dashboard_design.py
+├── test_ui.py
+├── tests
+│   ├── test_pipeline_status.py
+│   ├── test_processing_quick.py
+│   ├── test_setup.py
+│   └── test_transport_download.py
+├── treelist.txt
+├── utils
+│   ├── api_client.py
+│   ├── final_lsoa_linker.py
+│   ├── geographic_data_client.py
+│   ├── gtfs_parser.py
+│   ├── merge_naptan_coordinates.py
+│   └── transxchange_stop_extractor.py
+├── venv
+│   ├── bin
+│   │   ├── Activate.ps1
+│   │   ├── activate
+│   │   ├── activate.csh
+│   │   ├── activate.fish
+│   │   ├── dotenv
+│   │   ├── f2py
+│   │   ├── fio
+│   │   ├── fonttools
+│   │   ├── gtfs2db
+│   │   ├── hf
+│   │   ├── httpx
+│   │   ├── huggingface-cli
+│   │   ├── isympy
+│   │   ├── jsondiff
+│   │   ├── jsonpatch
+│   │   ├── jsonpointer
+│   │   ├── jsonschema
+│   │   ├── mercantile
+│   │   ├── normalizer
+│   │   ├── numba
+│   │   ├── numpy-config
+│   │   ├── pip
+│   │   ├── pip3
+│   │   ├── pip3.9
+│   │   ├── plotly_get_chrome
+│   │   ├── pyftmerge
+│   │   ├── pyftsubset
+│   │   ├── pygmentize
+│   │   ├── pyproj
+│   │   ├── python -> python3
+│   │   ├── python3 -> /Library/Developer/CommandLineTools/usr/bin/python3
+│   │   ├── python3.9 -> python3
+│   │   ├── rio
+│   │   ├── send2trash
+│   │   ├── streamlit
+│   │   ├── streamlit.cmd
+│   │   ├── tiny-agents
+│   │   ├── torchfrtrace
+│   │   ├── torchrun
+│   │   ├── tqdm
+│   │   ├── transformers
+│   │   ├── transformers-cli
+│   │   ├── ttx
+│   │   ├── utm-converter
+│   │   └── wsdump
+│   ├── dist_metrics.pxd
+│   ├── etc
+│   │   └── jupyter
+│   ├── include
+│   ├── lib
+│   │   └── python3.9
+│   ├── pyvenv.cfg
+│   └── share
+│       ├── jupyter
+│       ├── man
+│       └── xyzservices
+└── visualizations
+    ├── geo_visualizer.py
+    └── output
+        └── stops_by_region.png
+
+56 directories, 240 files
