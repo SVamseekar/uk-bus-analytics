@@ -57,3 +57,6 @@ tmp/
 *.zip
 *.tar.gz
 *.parquet
+
+# TransXChange XML files (bus schedules) - too large for git
+*.xml
