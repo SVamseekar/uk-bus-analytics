@@ -42,39 +42,59 @@ stop density, route availability, walking distances, and service accessibility s
 
 st.markdown("---")
 
-# Global filters - REDESIGNED
-st.markdown("### Filter View")
+# Global filters - HIERARCHICAL DESIGN
+st.markdown("### 🔍 Analysis Filters")
 
-# Create filter options
-filter_options = ['📊 All Regions (Comparison)']
-filter_options += ['---REGIONS---']
-filter_options += [f'📍 {region}' for region in sorted(list(REGION_CODES.keys()))]
-filter_options += ['---URBAN/RURAL AGGREGATES---']
-filter_options += ['🏙️ All Urban Areas', '🌾 All Rural Areas']
+col1, col2 = st.columns([3, 2])
 
-view_filter = st.selectbox(
-    "Select Analysis Scope:",
-    filter_options,
-    key='view_filter',
-    help="Choose to compare all regions, analyze a specific region, or aggregate by urban/rural classification"
-)
+with col1:
+    region_options = ['All Regions'] + sorted(list(REGION_CODES.keys()))
+    region_filter = st.selectbox(
+        "Geographic Scope:",
+        region_options,
+        key='region_filter',
+        help="Select a specific region or compare all regions"
+    )
 
-# Parse the filter
-if view_filter == '📊 All Regions (Comparison)':
-    filter_mode = 'all_regions'
-    filter_value = None
-elif view_filter.startswith('📍'):
-    filter_mode = 'region'
-    filter_value = view_filter.replace('📍 ', '')
-elif view_filter == '🏙️ All Urban Areas':
-    filter_mode = 'urban'
-    filter_value = 'urban'
-elif view_filter == '🌾 All Rural Areas':
-    filter_mode = 'rural'
-    filter_value = 'rural'
+with col2:
+    urban_rural_filter = st.selectbox(
+        "Urban/Rural:",
+        ['All', 'Urban Only', 'Rural Only'],
+        key='urban_rural_filter',
+        help="Filter by urban or rural classification within selected geographic scope"
+    )
+
+# Parse filters into mode and value
+if region_filter == 'All Regions':
+    if urban_rural_filter == 'All':
+        filter_mode = 'all_regions'
+        filter_value = None
+        filter_display = "📊 All Regions"
+    elif urban_rural_filter == 'Urban Only':
+        filter_mode = 'all_urban'
+        filter_value = 'urban'
+        filter_display = "🏙️ All Regions - Urban Areas"
+    else:  # Rural Only
+        filter_mode = 'all_rural'
+        filter_value = 'rural'
+        filter_display = "🌾 All Regions - Rural Areas"
 else:
-    filter_mode = 'all_regions'
-    filter_value = None
+    # Specific region selected
+    if urban_rural_filter == 'All':
+        filter_mode = 'region'
+        filter_value = region_filter
+        filter_display = f"📍 {region_filter}"
+    elif urban_rural_filter == 'Urban Only':
+        filter_mode = 'region_urban'
+        filter_value = region_filter
+        filter_display = f"🏙️ {region_filter} - Urban"
+    else:  # Rural Only
+        filter_mode = 'region_rural'
+        filter_value = region_filter
+        filter_display = f"🌾 {region_filter} - Rural"
+
+# Display active filter
+st.info(f"**Active Filter:** {filter_display}")
 
 st.markdown("---")
 
@@ -89,12 +109,16 @@ st.markdown("*Which regions have the highest number of bus routes per capita?*")
 def load_filtered_data(filter_mode, filter_value):
     """
     Load data based on filter mode
-    - all_regions: return regional summary (9 regions)
-    - region: return single region summary
-    - urban/rural: aggregate stops data by urban/rural classification across all regions
+    Filter modes:
+    - all_regions: All 9 regions comparison
+    - all_urban: All urban areas nationwide
+    - all_rural: All rural areas nationwide
+    - region: Single region (all areas)
+    - region_urban: Single region urban only
+    - region_rural: Single region rural only
     """
     if filter_mode == 'all_regions':
-        # Show all regional data
+        # Show all 9 regional data
         return load_regional_summary()
 
     elif filter_mode == 'region':
@@ -102,9 +126,14 @@ def load_filtered_data(filter_mode, filter_value):
         df = load_regional_summary()
         return df[df['region_name'] == filter_value]
 
-    elif filter_mode in ['urban', 'rural']:
-        # Aggregate across all regions by urban/rural classification
-        stops_data = load_regional_stops()
+    elif filter_mode in ['all_urban', 'all_rural', 'region_urban', 'region_rural']:
+        # Need to aggregate from stops data
+        if filter_mode.startswith('region_'):
+            # Load specific region's stops
+            stops_data = load_regional_stops(filter_value)
+        else:
+            # Load all stops
+            stops_data = load_regional_stops()
 
         if stops_data.empty or 'UrbanRural (name)' not in stops_data.columns:
             return pd.DataFrame()
@@ -113,10 +142,12 @@ def load_filtered_data(filter_mode, filter_value):
         lsoa_data = stops_data[['lsoa_code', 'UrbanRural (name)', 'total_population']].drop_duplicates('lsoa_code')
 
         # Filter by urban or rural
-        if filter_mode == 'urban':
+        if 'urban' in filter_mode:
             lsoa_data = lsoa_data[lsoa_data['UrbanRural (name)'].str.contains('Urban', case=False, na=False)]
+            display_name = f"🏙️ {filter_value} - Urban" if filter_mode == 'region_urban' else '🏙️ All Urban Areas'
         else:  # rural
             lsoa_data = lsoa_data[lsoa_data['UrbanRural (name)'].str.contains('Rural', case=False, na=False)]
+            display_name = f"🌾 {filter_value} - Rural" if filter_mode == 'region_rural' else '🌾 All Rural Areas'
 
         # Count stops in these LSOAs
         stops_in_filter = stops_data[stops_data['lsoa_code'].isin(lsoa_data['lsoa_code'])]
@@ -127,7 +158,7 @@ def load_filtered_data(filter_mode, filter_value):
         # Aggregate metrics
         aggregated = pd.DataFrame([{
             'region_code': filter_mode,
-            'region_name': '🏙️ All Urban Areas' if filter_mode == 'urban' else '🌾 All Rural Areas',
+            'region_name': display_name,
             'total_stops': stops_in_filter['stop_id'].nunique(),
             'unique_lsoas': lsoa_data['lsoa_code'].nunique(),
             'population': lsoa_data['total_population'].sum(),
@@ -135,8 +166,12 @@ def load_filtered_data(filter_mode, filter_value):
         }])
 
         # Calculate per-capita metrics
-        aggregated['stops_per_1000'] = (aggregated['total_stops'] / aggregated['population']) * 1000
-        aggregated['routes_per_100k'] = (aggregated['routes_count'] / aggregated['population']) * 100000
+        if aggregated['population'].iloc[0] > 0:
+            aggregated['stops_per_1000'] = (aggregated['total_stops'] / aggregated['population']) * 1000
+            aggregated['routes_per_100k'] = (aggregated['routes_count'] / aggregated['population']) * 100000
+        else:
+            aggregated['stops_per_1000'] = 0
+            aggregated['routes_per_100k'] = 0
 
         return aggregated
 
@@ -191,8 +226,8 @@ with st.spinner("Loading route density data..."):
 
     if not route_data.empty:
         # Show different views based on filter mode
-        if filter_mode in ['region', 'urban', 'rural']:
-            # Single entity: show metrics
+        if filter_mode != 'all_regions':
+            # Single entity: show metrics + gauge chart
             region = route_data.iloc[0]
             col1, col2, col3, col4 = st.columns(4)
             with col1:
@@ -207,8 +242,33 @@ with st.spinner("Loading route density data..."):
                 nat_avg = all_data['routes_per_100k'].mean()
                 delta = region['routes_per_100k'] - nat_avg
                 st.metric("vs National Avg", f"{delta:+.1f}", delta=f"{delta:+.1f}")
+
+            # Add gauge chart for single entity
+            fig = go.Figure(go.Indicator(
+                mode="gauge+number+delta",
+                value=region['routes_per_100k'],
+                delta={'reference': nat_avg, 'valueformat': '.1f'},
+                title={'text': f"Routes per 100k Population<br><sub>National Average: {nat_avg:.1f}</sub>"},
+                gauge={
+                    'axis': {'range': [None, max(nat_avg * 2, region['routes_per_100k'] * 1.2)]},
+                    'bar': {'color': "#16a34a"},
+                    'steps': [
+                        {'range': [0, nat_avg * 0.5], 'color': "#fee2e2"},
+                        {'range': [nat_avg * 0.5, nat_avg], 'color': "#fef3c7"},
+                        {'range': [nat_avg, nat_avg * 1.5], 'color': "#d9f99d"},
+                        {'range': [nat_avg * 1.5, nat_avg * 2], 'color': "#86efac"}
+                    ],
+                    'threshold': {
+                        'line': {'color': "red", 'width': 4},
+                        'thickness': 0.75,
+                        'value': nat_avg
+                    }
+                }
+            ))
+            fig.update_layout(height=300, margin=dict(l=20, r=20, t=60, b=20))
+            st.plotly_chart(fig, use_container_width=True)
         else:
-            # Multiple regions: show chart
+            # Multiple regions: show comparison bar chart
             fig = create_route_density_viz(route_data)
             if fig:
                 st.plotly_chart(fig, use_container_width=True)
@@ -225,7 +285,19 @@ with st.spinner("Loading route density data..."):
             min_groups=1
         )
 
-        narrative = ENGINE.run(route_data, config, {'region': filter_value if filter_mode == 'region' else None})
+        # Pass appropriate filter context based on mode
+        insight_filters = {}
+        if filter_mode == 'region':
+            insight_filters['region'] = filter_value
+        elif filter_mode in ['region_urban', 'region_rural']:
+            insight_filters['region'] = filter_value
+            insight_filters['urban_rural'] = 'Urban' if 'urban' in filter_mode else 'Rural'
+        elif filter_mode == 'all_urban':
+            insight_filters['urban_rural'] = 'Urban'
+        elif filter_mode == 'all_rural':
+            insight_filters['urban_rural'] = 'Rural'
+
+        narrative = ENGINE.run(route_data, config, insight_filters)
 
         # Display insights
         st.markdown("### Key Findings")
@@ -308,8 +380,8 @@ with st.spinner("Loading stop coverage data..."):
 
     if not stop_data.empty:
         # Show different views based on filter mode
-        if filter_mode in ['region', 'urban', 'rural']:
-            # Single entity: show metrics
+        if filter_mode != 'all_regions':
+            # Single entity: show metrics + gauge
             region = stop_data.iloc[0]
             col1, col2, col3, col4 = st.columns(4)
             with col1:
@@ -324,8 +396,63 @@ with st.spinner("Loading stop coverage data..."):
                 nat_avg = all_data['stops_per_1000'].mean()
                 delta = region['stops_per_1000'] - nat_avg
                 st.metric("vs National Avg", f"{delta:+.1f}", delta=f"{delta:+.1f}")
+
+            # Add radial/polar bar chart for single entity - distinct from A1's gauge
+            # Calculate percentile position
+            all_data_full = load_regional_summary()
+            sorted_values = all_data_full['stops_per_1000'].sort_values()
+            percentile = (sorted_values < region['stops_per_1000']).sum() / len(sorted_values) * 100
+
+            # Create polar bar chart
+            categories = ['National\nAverage', 'This\nSelection', 'Top\nPerformer']
+            values = [
+                nat_avg,
+                region['stops_per_1000'],
+                all_data_full['stops_per_1000'].max()
+            ]
+            colors = ['#94a3b8', '#3b82f6', '#10b981']
+
+            fig = go.Figure()
+
+            fig.add_trace(go.Barpolar(
+                r=values,
+                theta=categories,
+                marker=dict(
+                    color=colors,
+                    line=dict(color='white', width=2)
+                ),
+                text=[f"{v:.1f}" for v in values],
+                textposition='outside',
+                textfont=dict(size=14, color='black'),
+                hovertemplate='%{theta}<br>%{r:.1f} stops/1000<extra></extra>'
+            ))
+
+            fig.update_layout(
+                polar=dict(
+                    radialaxis=dict(
+                        visible=True,
+                        range=[0, max(values) * 1.2],
+                        showticklabels=False,
+                        ticks=''
+                    ),
+                    angularaxis=dict(
+                        direction='clockwise',
+                        rotation=90
+                    )
+                ),
+                title=dict(
+                    text=f"Stop Coverage Benchmark<br><sub>Percentile: {percentile:.0f}th (among all regions)</sub>",
+                    x=0.5,
+                    xanchor='center'
+                ),
+                height=350,
+                margin=dict(l=80, r=80, t=80, b=60),
+                showlegend=False
+            )
+
+            st.plotly_chart(fig, use_container_width=True)
         else:
-            # Multiple regions: show chart
+            # Multiple regions: show comparison chart
             fig = create_stop_coverage_viz(stop_data)
             if fig:
                 st.plotly_chart(fig, use_container_width=True)
@@ -342,7 +469,19 @@ with st.spinner("Loading stop coverage data..."):
             min_groups=1
         )
 
-        narrative = ENGINE.run(stop_data, config, {'region': filter_value if filter_mode == 'region' else None})
+        # Pass appropriate filter context
+        insight_filters = {}
+        if filter_mode == 'region':
+            insight_filters['region'] = filter_value
+        elif filter_mode in ['region_urban', 'region_rural']:
+            insight_filters['region'] = filter_value
+            insight_filters['urban_rural'] = 'Urban' if 'urban' in filter_mode else 'Rural'
+        elif filter_mode == 'all_urban':
+            insight_filters['urban_rural'] = 'Urban'
+        elif filter_mode == 'all_rural':
+            insight_filters['urban_rural'] = 'Rural'
+
+        narrative = ENGINE.run(stop_data, config, insight_filters)
 
         st.markdown("### Key Findings")
         st.info(narrative['summary'])
@@ -461,15 +600,25 @@ st.markdown("*How are bus stops distributed across local areas (LSOAs)?*")
 
 def analyze_stop_distribution(filter_mode, filter_value):
     """Analyze distribution of stops across LSOAs in our dataset"""
-    # Load stops data (contains LSOAs with demographic info)
+    # Load stops data based on filter mode
     if filter_mode == 'all_regions':
         stops_data = load_regional_stops()
     elif filter_mode == 'region':
         stops_data = load_regional_stops(filter_value)
-    elif filter_mode in ['urban', 'rural']:
+    elif filter_mode in ['all_urban', 'all_rural']:
+        # All urban or all rural across all regions
         stops_data = load_regional_stops()
-        if 'UrbanRural (name)' in stops_data.columns:
-            if filter_mode == 'urban':
+        if not stops_data.empty and 'UrbanRural (name)' in stops_data.columns:
+            if 'urban' in filter_mode:
+                lsoa_list = stops_data[stops_data['UrbanRural (name)'].str.contains('Urban', case=False, na=False)]['lsoa_code'].unique()
+            else:
+                lsoa_list = stops_data[stops_data['UrbanRural (name)'].str.contains('Rural', case=False, na=False)]['lsoa_code'].unique()
+            stops_data = stops_data[stops_data['lsoa_code'].isin(lsoa_list)]
+    elif filter_mode in ['region_urban', 'region_rural']:
+        # Specific region's urban or rural
+        stops_data = load_regional_stops(filter_value)
+        if not stops_data.empty and 'UrbanRural (name)' in stops_data.columns:
+            if 'urban' in filter_mode:
                 lsoa_list = stops_data[stops_data['UrbanRural (name)'].str.contains('Urban', case=False, na=False)]['lsoa_code'].unique()
             else:
                 lsoa_list = stops_data[stops_data['UrbanRural (name)'].str.contains('Rural', case=False, na=False)]['lsoa_code'].unique()
@@ -598,15 +747,25 @@ def calculate_lsoa_to_nearest_stop_distance(filter_mode, filter_value):
     """Calculate actual distance from each LSOA centroid to nearest bus stop"""
     from scipy.spatial import cKDTree
 
-    # Load stops based on filter
+    # Load stops based on filter mode
     if filter_mode == 'all_regions':
         stops_data = load_regional_stops()
     elif filter_mode == 'region':
         stops_data = load_regional_stops(filter_value)
-    elif filter_mode in ['urban', 'rural']:
+    elif filter_mode in ['all_urban', 'all_rural']:
+        # All urban or all rural across all regions
         stops_data = load_regional_stops()
-        if 'UrbanRural (name)' in stops_data.columns:
-            if filter_mode == 'urban':
+        if not stops_data.empty and 'UrbanRural (name)' in stops_data.columns:
+            if 'urban' in filter_mode:
+                lsoa_list = stops_data[stops_data['UrbanRural (name)'].str.contains('Urban', case=False, na=False)]['lsoa_code'].unique()
+            else:
+                lsoa_list = stops_data[stops_data['UrbanRural (name)'].str.contains('Rural', case=False, na=False)]['lsoa_code'].unique()
+            stops_data = stops_data[stops_data['lsoa_code'].isin(lsoa_list)]
+    elif filter_mode in ['region_urban', 'region_rural']:
+        # Specific region's urban or rural
+        stops_data = load_regional_stops(filter_value)
+        if not stops_data.empty and 'UrbanRural (name)' in stops_data.columns:
+            if 'urban' in filter_mode:
                 lsoa_list = stops_data[stops_data['UrbanRural (name)'].str.contains('Urban', case=False, na=False)]['lsoa_code'].unique()
             else:
                 lsoa_list = stops_data[stops_data['UrbanRural (name)'].str.contains('Rural', case=False, na=False)]['lsoa_code'].unique()
@@ -878,19 +1037,19 @@ st.markdown("*How does bus coverage vary between urban and rural areas?*")
 
 def analyze_urban_rural_coverage(filter_mode, filter_value):
     """Analyze coverage by urban/rural classification using ONS RUC data"""
-    # Load stops based on filter
+    # Load stops based on filter (only makes sense for all_regions or single region)
     if filter_mode == 'all_regions':
         stops_data = load_regional_stops()
     elif filter_mode == 'region':
         stops_data = load_regional_stops(filter_value)
     else:
-        # For urban/rural filter mode, this analysis doesn't make sense (already filtered)
+        # For urban/rural specific filters, this analysis is redundant
         return None, None
 
     if stops_data.empty or 'UrbanRural (name)' not in stops_data.columns:
         return None, None
 
-    # Get unique LSOAs to avoid double-counting (each stop shouldn't count population multiple times)
+    # Get unique LSOAs to avoid double-counting
     lsoa_classification = stops_data[['lsoa_code', 'UrbanRural (name)', 'total_population']].drop_duplicates('lsoa_code')
 
     # Count stops per LSOA
@@ -919,8 +1078,8 @@ def analyze_urban_rural_coverage(filter_mode, filter_value):
 with st.spinner("Analyzing urban-rural disparities..."):
     ur_data, lsoa_detail = analyze_urban_rural_coverage(filter_mode, filter_value)
 
-    if filter_mode in ['urban', 'rural']:
-        st.info(f"📊 **Note:** Urban-Rural disparity analysis is not available when viewing '{view_filter}'. This section compares urban vs rural areas, so it requires either 'All Regions' or a specific region to be selected.")
+    if filter_mode in ['all_urban', 'all_rural', 'region_urban', 'region_rural']:
+        st.info(f"📊 **Note:** Urban-Rural disparity analysis is not available when viewing '{filter_display}'. This section compares urban vs rural areas, so it requires either 'All Regions' or a specific region (with 'All' urban/rural) to be selected.")
     elif ur_data is not None and not ur_data.empty:
         # Visualization
         ur_sorted = ur_data.sort_values('stops_per_1000', ascending=False)
