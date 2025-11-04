@@ -1,8 +1,10 @@
 """
 Category A: Coverage & Accessibility Analysis
-Professional consulting-style dashboard powered by InsightEngine for dynamic narratives
+Professional consulting-style dashboard with dynamic narratives and adaptive visualizations
 
-All 8 sections use InsightEngine for context-aware, evidence-based insights
+Sections A1-A2 use InsightEngine for context-aware narratives
+Sections A3-A8 use conditional logic for context-specific analysis
+All sections adapt to hierarchical filter selections (region + urban/rural)
 """
 
 import sys
