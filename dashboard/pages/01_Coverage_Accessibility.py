@@ -105,7 +105,7 @@ st.markdown("---")
 # SECTION A1: Regional Route Density Analysis
 # ============================================================================
 
-st.header("📊 A1: Regional Route Density Analysis")
+st.header("📊 Regional Route Density Analysis")
 st.markdown("*Which regions have the highest number of bus routes per capita?*")
 
 def calculate_population_weighted_average(df, value_col):
@@ -344,7 +344,7 @@ st.markdown("---")
 # SECTION A2: Regional Stop Coverage
 # ============================================================================
 
-st.header("📊 A2: Regional Stop Coverage Analysis")
+st.header("📊 Regional Stop Coverage Analysis")
 st.markdown("*Which regions have the lowest number of bus stops per 1,000 residents?*")
 
 def create_stop_coverage_viz(data):
@@ -537,7 +537,7 @@ st.markdown("---")
 # SECTION A3: High-Density Underserved Areas
 # ============================================================================
 
-st.header("📊 A3: High-Density Underserved Areas")
+st.header("📊 High-Density Underserved Areas")
 st.markdown("*Are there regions where bus stop density is low relative to population density?*")
 
 def create_density_scatter(data):
@@ -631,7 +631,7 @@ st.markdown("---")
 # SECTION A4: Service Desert Identification
 # ============================================================================
 
-st.header("📊 A4: Stop Coverage Distribution")
+st.header("📊 Stop Coverage Distribution")
 st.markdown("*How are bus stops distributed across local areas (LSOAs)?*")
 
 def analyze_stop_distribution(filter_mode, filter_value):
@@ -779,7 +779,7 @@ st.markdown("---")
 # Force re-execution when filters change
 _a5_key = f"a5_{filter_mode}_{filter_value}"
 
-st.header("📊 A5: Walking Distance Analysis")
+st.header("📊 Walking Distance Analysis")
 st.markdown("*What is the average distance from a household to the nearest bus stop in each region?*")
 
 def calculate_lsoa_to_nearest_stop_distance(filter_mode, filter_value):
@@ -954,7 +954,7 @@ st.markdown("---")
 # Force re-execution when filters change
 _a6_key = f"a6_{filter_mode}_{filter_value}"
 
-st.header("📊 A6: Accessibility Standard Compliance")
+st.header("📊 Accessibility Standard Compliance")
 st.markdown("*Which regions fail the DfT 400m accessibility standard?*")
 
 st.info("""
@@ -1077,7 +1077,7 @@ st.markdown("---")
 # Force re-execution when filters change
 _a7_key = f"a7_{filter_mode}_{filter_value}"
 
-st.header("📊 A7: Urban-Rural Coverage Disparity")
+st.header("📊 Urban-Rural Coverage Disparity")
 st.markdown("*How does bus coverage vary between urban and rural areas?*")
 
 def analyze_urban_rural_coverage(filter_mode, filter_value):
@@ -1220,7 +1220,7 @@ st.markdown("---")
 # SECTION A8: Population-Service Mismatch Zones
 # ============================================================================
 
-st.header("📊 A8: Population-Service Mismatch Zones")
+st.header("📊 Population-Service Mismatch Zones")
 st.markdown("*Are there regions with high population but minimal bus services?*")
 
 def identify_mismatch_zones(data):
