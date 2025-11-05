@@ -673,26 +673,388 @@ else:
 st.markdown("---")
 
 # ============================================================================
-# SECTIONS D26-D31: TO BE IMPLEMENTED
+# SECTION D26: Elderly Population vs Coverage
 # ============================================================================
 
-st.header("🚧 Additional Sections In Development")
+st.markdown("---")
+_d26_key = f"d26_{filter_mode}_{filter_value}"
+
+st.header("👴 Elderly Population and Bus Coverage")
+
+# Data sufficiency check
+if len(lsoa_data) < 30:
+    st.warning(f"⚠️ Insufficient data ({len(lsoa_data)} LSOAs). Need at least 30 for reliable analysis.")
+else:
+    # Check for elderly data
+    if 'age_65_plus' not in lsoa_data.columns:
+        st.warning("⚠️ Elderly population data not available in current dataset.")
+    else:
+        # Calculate elderly percentage
+        lsoa_data['pct_elderly'] = (lsoa_data['age_65_plus'] / lsoa_data['total_population'] * 100).fillna(0)
+
+        # Calculate weighted metrics (single source of truth)
+        national_weighted_avg_d26 = calculate_weighted_average_d(lsoa_data, 'stops_per_1000')
+        national_pct_elderly = (lsoa_data['age_65_plus'].sum() / lsoa_data['total_population'].sum()) * 100
+
+        # Create hexbin density plot
+        fig = go.Figure()
+
+        fig.add_trace(go.Histogram2d(
+            x=lsoa_data['pct_elderly'],
+            y=lsoa_data['stops_per_1000'],
+            colorscale='Viridis',
+            nbinsx=30,
+            nbinsy=30,
+            colorbar=dict(title="LSOA Count")
+        ))
+
+        # Add national averages
+        fig.add_hline(y=national_weighted_avg_d26, line_dash="dash", line_color="red",
+                     annotation_text=f"National Avg: {national_weighted_avg_d26:.1f} stops/1k")
+        fig.add_vline(x=national_pct_elderly, line_dash="dash", line_color="red",
+                     annotation_text=f"National Avg: {national_pct_elderly:.1f}% elderly")
+
+        fig.update_layout(
+            title=f"Elderly Population vs Bus Coverage Density ({filter_display})",
+            xaxis_title="% Population Aged 65+",
+            yaxis_title="Stops per 1,000 Population",
+            height=500
+        )
+
+        st.plotly_chart(fig, use_container_width=True)
+
+        # Statistical analysis
+        corr, p_value = stats.pearsonr(lsoa_data['pct_elderly'], lsoa_data['stops_per_1000'])
+
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Correlation (r)", f"{corr:.3f}")
+        with col2:
+            st.metric("P-value", f"{p_value:.4f}")
+        with col3:
+            significance = "Significant" if p_value < 0.05 else "Not Significant"
+            st.metric("Statistical Significance", significance)
+
+        # Weighted comparison by elderly concentration
+        high_elderly = lsoa_data[lsoa_data['pct_elderly'] >= lsoa_data['pct_elderly'].quantile(0.75)]
+        low_elderly = lsoa_data[lsoa_data['pct_elderly'] <= lsoa_data['pct_elderly'].quantile(0.25)]
+
+        coverage_high_elderly = calculate_weighted_average_d(high_elderly, 'stops_per_1000')
+        coverage_low_elderly = calculate_weighted_average_d(low_elderly, 'stops_per_1000')
+
+        if coverage_low_elderly > 0:
+            gap_pct = ((coverage_high_elderly / coverage_low_elderly) - 1) * 100
+        else:
+            gap_pct = 0
+
+        st.markdown(f"""
+        **Weighted Analysis:**
+        - **High elderly areas** (≥75th percentile, {high_elderly['age_65_plus'].sum()/high_elderly['total_population'].sum()*100:.1f}% elderly): {coverage_high_elderly:.1f} stops per 1,000
+        - **Low elderly areas** (≤25th percentile, {low_elderly['age_65_plus'].sum()/low_elderly['total_population'].sum()*100:.1f}% elderly): {coverage_low_elderly:.1f} stops per 1,000
+        - **Gap**: {gap_pct:+.1f}%
+        """)
+
+        # Interpretation based on significance
+        if p_value < 0.05:
+            if corr < -0.3:
+                st.error(f"⚠️ **Significant negative correlation** (r={corr:.3f}, p={p_value:.4f}): "
+                        f"Elderly populations face {abs(gap_pct):.1f}% less bus coverage. This represents a critical "
+                        f"mobility equity issue for populations with higher transport dependency.")
+            elif corr > 0.3:
+                st.success(f"✅ **Significant positive correlation** (r={corr:.3f}, p={p_value:.4f}): "
+                          f"Service provision aligns with elderly populations. Areas with higher elderly populations "
+                          f"receive {gap_pct:.1f}% better coverage.")
+            else:
+                st.info(f"ℹ️ **Weak correlation** (r={corr:.3f}, p={p_value:.4f}): "
+                       f"Relationship exists but is not strong.")
+        else:
+            st.info("ℹ️ No statistically significant relationship between elderly population and bus coverage.")
+
+        with st.expander("📊 Data Sources & Methodology"):
+            st.markdown(f"""
+            **Data Sources:**
+            - Age demographics: ONS 2021 Census (LSOA level)
+            - Bus stops: NaPTAN October 2025
+
+            **Methodology:**
+            - Elderly defined as age 65+
+            - Population-weighted averages used throughout
+            - Pearson correlation with significance testing
+            - Hexbin density visualization shows concentration patterns
+
+            **Sample:** {len(lsoa_data):,} LSOAs | {lsoa_data['age_65_plus'].sum():,.0f} elderly population | {lsoa_data['num_stops'].sum():,.0f} bus stops
+            """)
+
+st.markdown("---")
+
+# ============================================================================
+# SECTION D27: Car Ownership vs Service Provision
+# ============================================================================
+
+_d27_key = f"d27_{filter_mode}_{filter_value}"
+
+st.header("🚗 Car Ownership and Bus Service Provision")
+
+# Check for multi-region requirement
+if filter_mode not in ['all_regions', 'all_urban', 'all_rural']:
+    st.info("📊 Correlation analysis requires multiple regions. Available only in multi-region views (All Regions, All Urban, All Rural).")
+elif len(lsoa_data) < 30:
+    st.warning(f"⚠️ Insufficient data ({len(lsoa_data)} LSOAs). Need at least 30 for reliable correlation.")
+else:
+    # Check for car ownership data
+    if 'pct_no_car' not in lsoa_data.columns:
+        st.warning("⚠️ Car ownership data not available in current dataset.")
+    else:
+        # Calculate weighted metrics (single source of truth)
+        national_weighted_avg_d27 = calculate_weighted_average_d(lsoa_data, 'stops_per_1000')
+        national_pct_no_car = calculate_weighted_average_d(lsoa_data, 'pct_no_car')
+
+        # Create bubble chart
+        fig = px.scatter(
+            lsoa_data,
+            x='pct_no_car',
+            y='stops_per_1000',
+            size='total_population',
+            color='region_name' if 'region_name' in lsoa_data.columns and filter_mode == 'all_regions' else None,
+            hover_data=['lsoa_name', 'total_population'],
+            title=f"Car Ownership vs Bus Coverage ({filter_display})",
+            labels={
+                'pct_no_car': '% Households Without Car',
+                'stops_per_1000': 'Stops per 1,000 Population'
+            },
+            opacity=0.6
+        )
+
+        # Add national averages
+        fig.add_hline(y=national_weighted_avg_d27, line_dash="dash", line_color="red",
+                     annotation_text=f"National Avg: {national_weighted_avg_d27:.1f} stops/1k")
+        fig.add_vline(x=national_pct_no_car, line_dash="dash", line_color="red",
+                     annotation_text=f"National Avg: {national_pct_no_car:.1f}% no car")
+
+        # Add trendline
+        z = np.polyfit(lsoa_data['pct_no_car'].fillna(0), lsoa_data['stops_per_1000'], 1)
+        p = np.poly1d(z)
+        x_line = np.linspace(lsoa_data['pct_no_car'].min(), lsoa_data['pct_no_car'].max(), 100)
+        fig.add_trace(go.Scatter(x=x_line, y=p(x_line), mode='lines', name='Trend',
+                                line=dict(color='gray', dash='dot')))
+
+        fig.update_layout(height=500)
+        st.plotly_chart(fig, use_container_width=True)
+
+        # Statistical analysis
+        corr, p_value = stats.pearsonr(lsoa_data['pct_no_car'].fillna(0), lsoa_data['stops_per_1000'])
+
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Correlation (r)", f"{corr:.3f}")
+        with col2:
+            st.metric("P-value", f"{p_value:.4f}")
+        with col3:
+            significance = "Significant" if p_value < 0.05 else "Not Significant"
+            st.metric("Statistical Significance", significance)
+
+        # Weighted comparison
+        high_no_car = lsoa_data[lsoa_data['pct_no_car'] >= lsoa_data['pct_no_car'].quantile(0.75)]
+        low_no_car = lsoa_data[lsoa_data['pct_no_car'] <= lsoa_data['pct_no_car'].quantile(0.25)]
+
+        coverage_high_no_car = calculate_weighted_average_d(high_no_car, 'stops_per_1000')
+        coverage_low_no_car = calculate_weighted_average_d(low_no_car, 'stops_per_1000')
+
+        if coverage_low_no_car > 0:
+            gap_pct = ((coverage_high_no_car / coverage_low_no_car) - 1) * 100
+        else:
+            gap_pct = 0
+
+        st.markdown(f"""
+        **Weighted Analysis:**
+        - **High car dependency** (≤25th percentile no-car, {calculate_weighted_average_d(low_no_car, 'pct_no_car'):.1f}% without car): {coverage_low_no_car:.1f} stops per 1,000
+        - **Low car dependency** (≥75th percentile no-car, {calculate_weighted_average_d(high_no_car, 'pct_no_car'):.1f}% without car): {coverage_high_no_car:.1f} stops per 1,000
+        - **Gap**: {gap_pct:+.1f}%
+        """)
+
+        # Policy interpretation
+        if p_value < 0.05:
+            if corr > 0.3:
+                st.success(f"✅ **Positive correlation confirmed** (r={corr:.3f}, p={p_value:.4f}): "
+                          f"Areas with higher car dependency (low car ownership) receive {gap_pct:.1f}% better service. "
+                          f"This suggests policy-driven provision targeting car-free households.")
+            elif corr < -0.3:
+                st.error(f"⚠️ **Inverse relationship** (r={corr:.3f}, p={p_value:.4f}): "
+                        f"Low car ownership areas paradoxically receive worse service. This represents a critical "
+                        f"service gap where need is highest.")
+            else:
+                st.info(f"ℹ️ **Weak relationship** (r={corr:.3f}, p={p_value:.4f}): "
+                       f"Service provision appears independent of car ownership patterns. Policy may not target need effectively.")
+        else:
+            st.warning("⚠️ No significant relationship between car ownership and bus coverage. "
+                      "Service provision appears disconnected from transport need indicators.")
+
+        with st.expander("📊 Data Sources & Methodology"):
+            st.markdown(f"""
+            **Data Sources:**
+            - Car ownership: ONS 2021 Census Table TS045 (LSOA level)
+            - Bus stops: NaPTAN October 2025
+
+            **Methodology:**
+            - No-car percentage: Households without access to car or van
+            - Population-weighted averages (bubble size represents population)
+            - Pearson correlation with significance testing
+            - Quartile-based comparison for policy interpretation
+
+            **Sample:** {len(lsoa_data):,} LSOAs | {lsoa_data['total_households'].sum():,.0f} households | {lsoa_data['households_no_car'].sum():,.0f} car-free households
+            """)
+
+st.markdown("---")
+
+# ============================================================================
+# SECTION D31: Population Density vs Stop Density
+# ============================================================================
+
+_d31_key = f"d31_{filter_mode}_{filter_value}"
+
+st.header("📍 Population Density vs Stop Density")
+
+# Check for multi-region requirement
+if filter_mode not in ['all_regions', 'all_urban', 'all_rural']:
+    st.info("📊 Correlation analysis requires multiple data points. Available only in multi-region views (All Regions, All Urban, All Rural).")
+elif len(lsoa_data) < 30:
+    st.warning(f"⚠️ Insufficient data ({len(lsoa_data)} LSOAs). Need at least 30 for reliable correlation.")
+else:
+    # Calculate population density (using stops_per_1000 as proxy for stop density relative to population)
+    # Create log-scale visualization
+    lsoa_data['pop_per_stop'] = lsoa_data['total_population'] / (lsoa_data['num_stops'] + 1)  # +1 to avoid division by zero
+
+    # Calculate weighted metrics (single source of truth)
+    national_weighted_avg_d31 = calculate_weighted_average_d(lsoa_data, 'stops_per_1000')
+
+    # Create log-scale scatter plot
+    fig = px.scatter(
+        lsoa_data,
+        x='total_population',
+        y='num_stops',
+        color='region_name' if 'region_name' in lsoa_data.columns and filter_mode == 'all_regions' else None,
+        hover_data=['lsoa_name', 'stops_per_1000'],
+        title=f"Population vs Stop Count (Log Scale) - {filter_display}",
+        labels={
+            'total_population': 'LSOA Population',
+            'num_stops': 'Number of Bus Stops'
+        },
+        log_x=True,
+        log_y=True,
+        opacity=0.6
+    )
+
+    # Add trendline (on log scale)
+    lsoa_valid = lsoa_data[(lsoa_data['total_population'] > 0) & (lsoa_data['num_stops'] > 0)].copy()
+    if len(lsoa_valid) > 2:
+        log_pop = np.log10(lsoa_valid['total_population'])
+        log_stops = np.log10(lsoa_valid['num_stops'])
+        z = np.polyfit(log_pop, log_stops, 1)
+        p = np.poly1d(z)
+
+        x_line = np.logspace(np.log10(lsoa_valid['total_population'].min()),
+                            np.log10(lsoa_valid['total_population'].max()), 100)
+        y_line = 10 ** p(np.log10(x_line))
+
+        fig.add_trace(go.Scatter(x=x_line, y=y_line, mode='lines', name='Power Law Fit',
+                                line=dict(color='red', dash='dash', width=2)))
+
+    fig.update_layout(height=500)
+    st.plotly_chart(fig, use_container_width=True)
+
+    # Statistical analysis on log-transformed data
+    if len(lsoa_valid) > 2:
+        log_pop = np.log10(lsoa_valid['total_population'])
+        log_stops = np.log10(lsoa_valid['num_stops'])
+        corr, p_value = stats.pearsonr(log_pop, log_stops)
+
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Log-Scale Correlation (r)", f"{corr:.3f}")
+        with col2:
+            st.metric("P-value", f"{p_value:.4f}")
+        with col3:
+            significance = "Significant" if p_value < 0.05 else "Not Significant"
+            st.metric("Statistical Significance", significance)
+        with col4:
+            slope = z[0]
+            st.metric("Power Law Exponent", f"{slope:.3f}")
+
+        # Efficiency analysis - compare actual vs expected
+        lsoa_valid['expected_stops'] = 10 ** p(log_pop)
+        lsoa_valid['efficiency'] = (lsoa_valid['num_stops'] / lsoa_valid['expected_stops']) * 100
+
+        overserved = lsoa_valid[lsoa_valid['efficiency'] > 120]  # >20% above expected
+        underserved = lsoa_valid[lsoa_valid['efficiency'] < 80]   # >20% below expected
+
+        st.markdown(f"""
+        **Service Provision Analysis:**
+        - **Power law exponent**: {slope:.3f} (expected: ~1.0 for linear scaling, <1.0 for economies of scale, >1.0 for diseconomies)
+        - **Overserved LSOAs** (>20% above trendline): {len(overserved):,} ({len(overserved)/len(lsoa_valid)*100:.1f}% of LSOAs, {overserved['total_population'].sum()/lsoa_valid['total_population'].sum()*100:.1f}% of population)
+        - **Underserved LSOAs** (>20% below trendline): {len(underserved):,} ({len(underserved)/len(lsoa_valid)*100:.1f}% of LSOAs, {underserved['total_population'].sum()/lsoa_valid['total_population'].sum()*100:.1f}% of population)
+        - **Well-served LSOAs** (within ±20% of expected): {len(lsoa_valid) - len(overserved) - len(underserved):,} ({(len(lsoa_valid) - len(overserved) - len(underserved))/len(lsoa_valid)*100:.1f}%)
+        """)
+
+        # Interpretation
+        if p_value < 0.05:
+            if slope < 0.9:
+                st.success(f"✅ **Economies of scale detected** (exponent={slope:.3f}, p={p_value:.4f}): "
+                          f"Larger populations receive proportionally MORE stops per person. This is efficient "
+                          f"service planning leveraging urban density.")
+            elif slope > 1.1:
+                st.warning(f"⚠️ **Diseconomies of scale** (exponent={slope:.3f}, p={p_value:.4f}): "
+                          f"Larger populations require disproportionately MORE stops per person. This may indicate "
+                          f"sprawl or inefficient network design in dense areas.")
+            else:
+                st.info(f"ℹ️ **Linear scaling** (exponent={slope:.3f}, p={p_value:.4f}): "
+                       f"Stop provision scales approximately linearly with population. Consistent per-capita service.")
+        else:
+            st.warning("⚠️ No significant relationship between population and stop count. "
+                      "Service provision may be driven by factors other than population size.")
+
+        # Highlight underserved areas
+        if len(underserved) > 0:
+            st.error(f"🚨 **Investment Priority Zones**: {len(underserved):,} LSOAs are significantly underserved relative to "
+                    f"their population size, affecting {underserved['total_population'].sum():,.0f} residents. "
+                    f"These areas require {(underserved['expected_stops'].sum() - underserved['num_stops'].sum()):,.0f} additional stops "
+                    f"to reach expected service levels.")
+
+        with st.expander("📊 Data Sources & Methodology"):
+            st.markdown(f"""
+            **Data Sources:**
+            - Population: ONS 2021 Census (LSOA level)
+            - Bus stops: NaPTAN October 2025
+
+            **Methodology:**
+            - Log-log scatter plot reveals power law relationships
+            - Linear regression on log-transformed data
+            - Power law exponent interpretation:
+              * <0.9: Economies of scale (efficient urban density)
+              * 0.9-1.1: Linear scaling (proportional service)
+              * >1.1: Diseconomies of scale (sprawl/inefficiency)
+            - Efficiency calculated as deviation from power law trendline
+            - ±20% threshold for over/under-served classification
+
+            **Sample:** {len(lsoa_valid):,} LSOAs | {lsoa_valid['total_population'].sum():,.0f} population | {lsoa_valid['num_stops'].sum():,.0f} bus stops
+            """)
+    else:
+        st.warning("⚠️ Insufficient valid data points for correlation analysis.")
+
+st.markdown("---")
+
+# ============================================================================
+# SECTIONS D28-D30: PENDING (Education, Amenity, Business)
+# ============================================================================
+
+st.header("🚧 Additional Sections Requiring Data Preparation")
 st.markdown("""
-The following sections are being implemented with the same quality standards:
+The following sections require additional data integration:
 
-- **D26:** Elderly Population vs Coverage (with weighted metrics)
-- **D27:** Car Ownership vs Service Provision (with correlation analysis)
-- **D28:** Coverage vs Educational Attainment (filter-aware)
-- **D29:** Amenity Concentration Analysis (LSOA-level)
-- **D30:** Business Density vs Service Quality (weighted comparisons)
-- **D31:** Population Density vs Stop Density (log-scale correlation)
+- **D28:** Coverage vs Educational Attainment (needs education attainment data by LSOA)
+- **D29:** Amenity Concentration Analysis (needs spatial proximity calculations for schools)
+- **D30:** Business Density vs Service Quality (needs business count data by LSOA)
 
-Each section will include:
-- ✅ Population-weighted calculations
-- ✅ Statistical significance testing
-- ✅ Filter-aware conditional rendering
-- ✅ Single source of truth for metrics
-- ✅ State management with section keys
+Each section will follow the same quality standards as D24-D27, D31.
 """)
 
 # ============================================================================
