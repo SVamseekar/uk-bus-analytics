@@ -315,6 +315,125 @@ class VariationRule:
         )]
 
 
+class QuartileComparisonRule:
+    """Compare top 25% vs bottom 25% (quartile analysis for correlations)"""
+
+    name = "quartile_comparison"
+    requirements = {'min_n': 30}
+
+    def applies(self, ctx: ViewContext, metrics: Dict[str, Any]) -> bool:
+        quartile = metrics.get('quartile_comparison')
+        return quartile is not None and quartile.get('gap_pct') is not None
+
+    def emit(self, ctx: ViewContext, metrics: Dict[str, Any]) -> List[Insight]:
+        quartile = metrics['quartile_comparison']
+
+        # Determine if gap is positive (high has more) or negative (high has less)
+        gap_pct = quartile['gap_pct']
+        gap_direction = "more" if gap_pct > 0 else "less"
+
+        # Policy interpretation based on magnitude
+        abs_gap = abs(gap_pct)
+        if abs_gap > 30:
+            severity = "critical"
+            policy_priority = "high"
+        elif abs_gap > 15:
+            severity = "significant"
+            policy_priority = "medium"
+        else:
+            severity = "moderate"
+            policy_priority = "low"
+
+        return [Insight(
+            kind='key_finding',
+            key='quartile_comparison',
+            payload={
+                'high_label': quartile['high_label'],
+                'low_label': quartile['low_label'],
+                'high_value': quartile['high_value'],
+                'low_value': quartile['low_value'],
+                'gap_pct': gap_pct,
+                'gap_direction': gap_direction,
+                'abs_gap': abs_gap,
+                'severity': severity,
+                'policy_priority': policy_priority,
+                'metric_name': quartile.get('metric_name', 'coverage'),
+                'dimension': quartile.get('dimension', 'characteristic')
+            }
+        )]
+
+
+class PowerLawRule:
+    """Interpret power law relationships (economies/diseconomies of scale)"""
+
+    name = "power_law"
+    requirements = {'min_n': 30}
+
+    def applies(self, ctx: ViewContext, metrics: Dict[str, Any]) -> bool:
+        power_law = metrics.get('power_law')
+        return power_law is not None and power_law.get('slope') is not None
+
+    def emit(self, ctx: ViewContext, metrics: Dict[str, Any]) -> List[Insight]:
+        pl = metrics['power_law']
+
+        slope = pl['slope']
+        p_value = pl['p_value']
+
+        # Interpret slope
+        if slope < 0.9:
+            scaling_type = "economies of scale"
+            efficiency = "efficient"
+            interpretation = "Larger populations receive proportionally MORE stops per person"
+        elif slope > 1.1:
+            scaling_type = "diseconomies of scale"
+            efficiency = "inefficient"
+            interpretation = "Larger populations require disproportionately MORE stops per person"
+        else:
+            scaling_type = "linear scaling"
+            efficiency = "proportional"
+            interpretation = "Stop provision scales approximately linearly with population"
+
+        return [Insight(
+            kind='key_finding',
+            key='power_law',
+            payload={
+                'slope': slope,
+                'p_value': p_value,
+                'r': pl.get('r', 0),
+                'scaling_type': scaling_type,
+                'efficiency': efficiency,
+                'interpretation': interpretation,
+                'significant': p_value < 0.05
+            }
+        )]
+
+
+class EfficiencyRule:
+    """Identify over/under-served areas based on efficiency deviation"""
+
+    name = "efficiency"
+    requirements = {'min_n': 30}
+
+    def applies(self, ctx: ViewContext, metrics: Dict[str, Any]) -> bool:
+        efficiency = metrics.get('efficiency_analysis')
+        return efficiency is not None and efficiency.get('n_underserved', 0) > 0
+
+    def emit(self, ctx: ViewContext, metrics: Dict[str, Any]) -> List[Insight]:
+        eff = metrics['efficiency_analysis']
+
+        return [Insight(
+            kind='recommendation',
+            key='efficiency',
+            payload={
+                'n_underserved': eff['n_underserved'],
+                'pop_underserved': eff['pop_underserved'],
+                'additional_stops_needed': eff['additional_stops_needed'],
+                'pct_underserved_lsoas': eff['pct_underserved_lsoas'],
+                'pct_underserved_pop': eff['pct_underserved_pop']
+            }
+        )]
+
+
 # Register all rules
 INSIGHT_REGISTRY.register(RankingRule())
 INSIGHT_REGISTRY.register(SingleRegionPositioningRule())
@@ -323,3 +442,6 @@ INSIGHT_REGISTRY.register(CorrelationRule())
 INSIGHT_REGISTRY.register(OutlierRule())
 INSIGHT_REGISTRY.register(GapToInvestmentRule())
 INSIGHT_REGISTRY.register(VariationRule())
+INSIGHT_REGISTRY.register(QuartileComparisonRule())
+INSIGHT_REGISTRY.register(PowerLawRule())
+INSIGHT_REGISTRY.register(EfficiencyRule())

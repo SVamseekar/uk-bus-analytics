@@ -25,6 +25,221 @@ class InsightEngine:
     def __init__(self):
         self.renderer = TemplateRenderer()
 
+    def run_correlation(
+        self,
+        df: pd.DataFrame,
+        x_col: str,
+        y_col: str,
+        x_name: str,
+        y_name: str,
+        metric_name: str = "coverage",
+        dimension: str = "characteristic",
+        rules: List[str] = ['correlation', 'quartile_comparison'],
+        sources: List[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Generate narrative for correlation analysis (LSOA-level data)
+
+        Simpler interface for Category D correlation patterns.
+
+        Args:
+            df: DataFrame with LSOA-level data
+            x_col: X variable column name
+            y_col: Y variable column name
+            x_name: Display name for X variable
+            y_name: Display name for Y variable
+            metric_name: Name of metric being analyzed (e.g., "coverage", "stops per 1,000")
+            dimension: Dimension being compared (e.g., "deprivation", "elderly population")
+            rules: Which rules to apply
+            sources: Data sources list
+
+        Returns:
+            Dict with summary, key_finding, etc.
+        """
+        metrics = {
+            'unit': metric_name,
+            'n': len(df),
+            'x_name': x_name,
+            'y_name': y_name,
+            'metric_name': metric_name,
+            'dimension': dimension
+        }
+
+        # Calculate correlation
+        corr_result = calc.calculate_correlation(df, x_col, y_col)
+        if corr_result:
+            metrics['correlation'] = corr_result
+
+        # Calculate quartile comparison if both columns exist
+        if x_col in df.columns and y_col in df.columns:
+            # Remove NaNs
+            valid_data = df[[x_col, y_col, 'total_population']].dropna()
+
+            if len(valid_data) >= 30:
+                # High = top 25% of x_col, Low = bottom 25% of x_col
+                q75 = valid_data[x_col].quantile(0.75)
+                q25 = valid_data[x_col].quantile(0.25)
+
+                high_group = valid_data[valid_data[x_col] >= q75]
+                low_group = valid_data[valid_data[x_col] <= q25]
+
+                # Calculate population-weighted y_col for each group
+                high_value = (high_group[y_col] * high_group['total_population']).sum() / high_group['total_population'].sum()
+                low_value = (low_group[y_col] * low_group['total_population']).sum() / low_group['total_population'].sum()
+
+                gap_pct = ((high_value / low_value) - 1) * 100 if low_value > 0 else 0
+
+                metrics['quartile_comparison'] = {
+                    'high_label': f"High {dimension} areas (≥75th percentile)",
+                    'low_label': f"Low {dimension} areas (≤25th percentile)",
+                    'high_value': high_value,
+                    'low_value': low_value,
+                    'gap_pct': gap_pct,
+                    'metric_name': metric_name,
+                    'dimension': dimension
+                }
+
+        # Simple context for correlation analysis
+        context = ViewContext(
+            scope="correlation",
+            n_groups=len(df),
+            filter_mode='all_regions',
+            filter_value=None
+        )
+
+        # Apply rules
+        insights = []
+        for rule_name in rules:
+            rule_list = INSIGHT_REGISTRY.for_metric('correlation_analysis', [rule_name])
+            for rule in rule_list:
+                if data_sufficient(metrics, rule.requirements) and rule.applies(context, metrics):
+                    insights.extend(rule.emit(context, metrics))
+
+        # Render
+        rendered = self.renderer.render_all(insights)
+
+        return {
+            'summary': '',
+            'key_finding': rendered.get('key_finding', ''),
+            'recommendation': '',
+            'investment': '',
+            'sources': sources or [],
+            'evidence': metrics,
+            'context': context
+        }
+
+    def run_power_law(
+        self,
+        df: pd.DataFrame,
+        x_col: str,
+        y_col: str,
+        x_name: str = "Population",
+        y_name: str = "Stop Count",
+        rules: List[str] = ['power_law', 'efficiency'],
+        sources: List[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Generate narrative for power law analysis (log-log correlation)
+
+        Used for analyzing scaling relationships like population vs stop density.
+
+        Args:
+            df: DataFrame with data
+            x_col: X variable column (e.g., 'total_population')
+            y_col: Y variable column (e.g., 'num_stops')
+            x_name: Display name for X
+            y_name: Display name for Y
+            rules: Which rules to apply
+            sources: Data sources
+
+        Returns:
+            Dict with key_finding, recommendation, evidence
+        """
+        import numpy as np
+        from scipy import stats as scipy_stats
+
+        # Filter valid data (both > 0 for log transform)
+        valid_data = df[(df[x_col] > 0) & (df[y_col] > 0)].copy()
+
+        if len(valid_data) < 30:
+            return {
+                'summary': '',
+                'key_finding': '⚠️ Insufficient data for power law analysis (n < 30)',
+                'recommendation': '',
+                'investment': '',
+                'sources': sources or [],
+                'evidence': {'n': len(valid_data)},
+                'context': None
+            }
+
+        # Log-transform
+        log_x = np.log10(valid_data[x_col])
+        log_y = np.log10(valid_data[y_col])
+
+        # Linear regression on log-log data
+        slope, intercept = np.polyfit(log_x, log_y, 1)
+        r, p_value = scipy_stats.pearsonr(log_x, log_y)
+
+        # Create polynomial for predictions
+        poly = np.poly1d([slope, intercept])
+
+        # Calculate efficiency
+        valid_data['expected'] = 10 ** poly(log_x)
+        valid_data['efficiency'] = (valid_data[y_col] / valid_data['expected']) * 100
+
+        # Identify under/over-served
+        underserved = valid_data[valid_data['efficiency'] < 80]  # >20% below expected
+        overserved = valid_data[valid_data['efficiency'] > 120]  # >20% above expected
+
+        # Build metrics
+        metrics = {
+            'power_law': {
+                'slope': slope,
+                'intercept': intercept,
+                'r': r,
+                'p_value': p_value,
+                'n': len(valid_data)
+            },
+            'efficiency_analysis': {
+                'n_underserved': len(underserved),
+                'n_overserved': len(overserved),
+                'n_well_served': len(valid_data) - len(underserved) - len(overserved),
+                'pop_underserved': underserved[x_col].sum() if 'total_population' in underserved.columns else 0,
+                'additional_stops_needed': (underserved['expected'].sum() - underserved[y_col].sum()) if len(underserved) > 0 else 0,
+                'pct_underserved_lsoas': (len(underserved) / len(valid_data)) * 100,
+                'pct_underserved_pop': (underserved[x_col].sum() / valid_data[x_col].sum()) * 100 if len(underserved) > 0 else 0
+            }
+        }
+
+        # Simple context
+        context = ViewContext(
+            scope="power_law",
+            n_groups=len(valid_data),
+            filter_mode='all_regions',
+            filter_value=None
+        )
+
+        # Apply rules
+        insights = []
+        for rule_name in rules:
+            rule_list = INSIGHT_REGISTRY.for_metric('power_law_analysis', [rule_name])
+            for rule in rule_list:
+                if data_sufficient(metrics, rule.requirements) and rule.applies(context, metrics):
+                    insights.extend(rule.emit(context, metrics))
+
+        # Render
+        rendered = self.renderer.render_all(insights)
+
+        return {
+            'summary': '',
+            'key_finding': rendered.get('key_finding', ''),
+            'recommendation': rendered.get('recommendation', ''),
+            'investment': '',
+            'sources': sources or [],
+            'evidence': metrics,
+            'context': context
+        }
+
     def _calculate_national_average(self, df: pd.DataFrame, value_col: str) -> float:
         """
         Calculate population-weighted national average for per-capita metrics

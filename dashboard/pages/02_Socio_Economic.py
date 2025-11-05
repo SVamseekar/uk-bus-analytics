@@ -451,69 +451,43 @@ else:
             with col_insights:
                 st.markdown("#### 📊 Statistical Analysis")
 
-                # Display correlation metrics
-                strength_label = "Strong" if abs(correlation) > 0.7 else ("Moderate" if abs(correlation) > 0.4 else "Weak")
-                direction_label = "positive" if correlation > 0 else "negative"
-
-                st.metric(
-                    "Correlation Coefficient",
-                    f"{correlation:.3f}",
-                    delta=f"{strength_label} {direction_label}"
+                # Generate insights using InsightEngine
+                insight_result = ENGINE.run_correlation(
+                    df=d24_data,
+                    x_col='imd_decile',
+                    y_col='stops_per_1000',
+                    x_name='IMD Deprivation Decile',
+                    y_name='Bus Coverage (stops/1000)',
+                    metric_name='stops per 1,000',
+                    dimension='deprivation',
+                    sources=['NaPTAN October 2025', 'IMD 2019', 'ONS Census 2021']
                 )
 
-                # Interpretation
-                if correlation > 0:
-                    interpretation = "More affluent areas (higher decile) tend to have MORE bus coverage"
-                else:
-                    interpretation = "More deprived areas (lower decile) tend to have MORE bus coverage"
+                # Display metrics
+                if 'correlation' in insight_result['evidence']:
+                    corr_data = insight_result['evidence']['correlation']
+                    st.metric("Correlation (r)", f"{corr_data['r']:.3f}",
+                             delta=f"{corr_data['strength'].title()} {'positive' if corr_data['r'] > 0 else 'negative'}")
+                    st.caption(f"*p-value: {corr_data['p']:.4f}*")
+                    st.caption(f"*n = {corr_data['n']:,} LSOAs*")
 
-                st.markdown(f"**Interpretation:** {interpretation}")
-
-                # Statistical significance
-                if p_value < 0.001:
-                    st.success("✅ **Highly significant** (p < 0.001)")
-                elif p_value < 0.05:
-                    st.success("✅ **Significant** (p < 0.05)")
-                else:
-                    st.warning("⚠️ **Not statistically significant**")
-                    st.caption("Results may be due to chance. Interpret with caution.")
-
-                st.caption(f"*p-value: {p_value:.4f}*")
-                st.caption(f"*n = {len(d24_data):,} LSOAs*")
+                # Display engine-generated insights
+                if insight_result['key_finding']:
+                    st.markdown(insight_result['key_finding'])
 
                 st.markdown("---")
 
-                # Decile comparison using WEIGHTED averages
+                # Summary metrics by deprivation level
                 st.markdown("#### By Deprivation Level")
-
                 most_deprived_data = d24_data[d24_data['imd_decile'] <= 3]
                 least_deprived_data = d24_data[d24_data['imd_decile'] >= 8]
 
                 most_deprived_avg = calculate_weighted_average_d(most_deprived_data, 'stops_per_1000')
                 least_deprived_avg = calculate_weighted_average_d(least_deprived_data, 'stops_per_1000')
 
-                gap_pct = ((least_deprived_avg - most_deprived_avg) / most_deprived_avg) * 100
-
-                st.metric(
-                    "Most Deprived (D1-3)",
-                    f"{most_deprived_avg:.1f} stops/1k"
-                )
-                st.metric(
-                    "Least Deprived (D8-10)",
-                    f"{least_deprived_avg:.1f} stops/1k",
-                    delta=f"{gap_pct:+.1f}%"
-                )
-
-                # Use same national_weighted_avg everywhere
-                st.metric(
-                    "vs National Weighted Avg",
-                    f"{national_weighted_avg:.1f} stops/1k"
-                )
-
-                if gap_pct > 0:
-                    st.info("📈 Affluent areas have better coverage")
-                else:
-                    st.info("📉 Deprived areas have better coverage")
+                st.metric("Most Deprived (D1-3)", f"{most_deprived_avg:.1f} stops/1k")
+                st.metric("Least Deprived (D8-10)", f"{least_deprived_avg:.1f} stops/1k")
+                st.metric("National Weighted Avg", f"{national_weighted_avg:.1f} stops/1k")
 
                 # Data sources
                 with st.expander("📚 Data Sources & Methodology"):
@@ -641,34 +615,29 @@ else:
                 high_unemp_data = d25_data[d25_data['unemployment_pct'] >= d25_data['unemployment_pct'].quantile(0.75)]
                 low_unemp_data = d25_data[d25_data['unemployment_pct'] <= d25_data['unemployment_pct'].quantile(0.25)]
 
+                # Generate insights using InsightEngine
+                insight_result_d25 = ENGINE.run_correlation(
+                    df=d25_data,
+                    x_col='unemployment_rate',
+                    y_col='stops_per_1000',
+                    x_name='Unemployment Rate',
+                    y_name='Bus Coverage (stops/1000)',
+                    metric_name='stops per 1,000',
+                    dimension='unemployment',
+                    sources=['NOMIS 2024', 'NaPTAN October 2025']
+                )
+
+                # Display metrics
                 high_unemp_avg = calculate_weighted_average_d(high_unemp_data, 'stops_per_1000')
                 low_unemp_avg = calculate_weighted_average_d(low_unemp_data, 'stops_per_1000')
 
-                gap = ((high_unemp_avg - low_unemp_avg) / low_unemp_avg) * 100
+                st.metric("High Unemployment Areas", f"{high_unemp_avg:.1f} stops/1k")
+                st.metric("Low Unemployment Areas", f"{low_unemp_avg:.1f} stops/1k")
+                st.metric("National Weighted Avg", f"{national_weighted_avg_d25:.1f} stops/1k")
 
-                st.metric(
-                    "High Unemployment Areas",
-                    f"{high_unemp_avg:.1f} stops/1k",
-                    delta=f"{gap:+.1f}% vs low"
-                )
-
-                st.metric(
-                    "Low Unemployment Areas",
-                    f"{low_unemp_avg:.1f} stops/1k"
-                )
-
-                # Use same weighted average reference
-                st.metric(
-                    "National Weighted Avg",
-                    f"{national_weighted_avg_d25:.1f} stops/1k"
-                )
-
-                if corr_unemp < 0 and p_value_unemp < 0.05:
-                    st.warning("⚠️ **Double burden:** High unemployment areas also have less bus access (statistically significant)")
-                elif corr_unemp > 0 and p_value_unemp < 0.05:
-                    st.success("✅ High unemployment areas have better bus access (statistically significant)")
-                else:
-                    st.info("ℹ️ No significant relationship detected between unemployment and bus coverage")
+                # Display engine-generated insights
+                if insight_result_d25['key_finding']:
+                    st.markdown(insight_result_d25['key_finding'])
 
 st.markdown("---")
 
@@ -723,52 +692,32 @@ else:
 
         st.plotly_chart(fig, use_container_width=True)
 
-        # Statistical analysis
-        corr, p_value = stats.pearsonr(lsoa_data['pct_elderly'], lsoa_data['stops_per_1000'])
+        # Generate insights using InsightEngine
+        insight_result = ENGINE.run_correlation(
+            df=lsoa_data,
+            x_col='pct_elderly',
+            y_col='stops_per_1000',
+            x_name='Elderly Population %',
+            y_name='Bus Coverage (stops/1000)',
+            metric_name='stops per 1,000',
+            dimension='elderly population',
+            sources=['ONS 2021 Census', 'NaPTAN October 2025']
+        )
 
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("Correlation (r)", f"{corr:.3f}")
-        with col2:
-            st.metric("P-value", f"{p_value:.4f}")
-        with col3:
-            significance = "Significant" if p_value < 0.05 else "Not Significant"
-            st.metric("Statistical Significance", significance)
+        # Display metrics
+        if 'correlation' in insight_result['evidence']:
+            corr_data = insight_result['evidence']['correlation']
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Correlation (r)", f"{corr_data['r']:.3f}")
+            with col2:
+                st.metric("P-value", f"{corr_data['p']:.4f}")
+            with col3:
+                st.metric("Statistical Significance", "Significant" if corr_data['significant'] else "Not Significant")
 
-        # Weighted comparison by elderly concentration
-        high_elderly = lsoa_data[lsoa_data['pct_elderly'] >= lsoa_data['pct_elderly'].quantile(0.75)]
-        low_elderly = lsoa_data[lsoa_data['pct_elderly'] <= lsoa_data['pct_elderly'].quantile(0.25)]
-
-        coverage_high_elderly = calculate_weighted_average_d(high_elderly, 'stops_per_1000')
-        coverage_low_elderly = calculate_weighted_average_d(low_elderly, 'stops_per_1000')
-
-        if coverage_low_elderly > 0:
-            gap_pct = ((coverage_high_elderly / coverage_low_elderly) - 1) * 100
-        else:
-            gap_pct = 0
-
-        st.markdown(f"""
-        **Weighted Analysis:**
-        - **High elderly areas** (≥75th percentile, {high_elderly['age_65_plus'].sum()/high_elderly['total_population'].sum()*100:.1f}% elderly): {coverage_high_elderly:.1f} stops per 1,000
-        - **Low elderly areas** (≤25th percentile, {low_elderly['age_65_plus'].sum()/low_elderly['total_population'].sum()*100:.1f}% elderly): {coverage_low_elderly:.1f} stops per 1,000
-        - **Gap**: {gap_pct:+.1f}%
-        """)
-
-        # Interpretation based on significance
-        if p_value < 0.05:
-            if corr < -0.3:
-                st.error(f"⚠️ **Significant negative correlation** (r={corr:.3f}, p={p_value:.4f}): "
-                        f"Elderly populations face {abs(gap_pct):.1f}% less bus coverage. This represents a critical "
-                        f"mobility equity issue for populations with higher transport dependency.")
-            elif corr > 0.3:
-                st.success(f"✅ **Significant positive correlation** (r={corr:.3f}, p={p_value:.4f}): "
-                          f"Service provision aligns with elderly populations. Areas with higher elderly populations "
-                          f"receive {gap_pct:.1f}% better coverage.")
-            else:
-                st.info(f"ℹ️ **Weak correlation** (r={corr:.3f}, p={p_value:.4f}): "
-                       f"Relationship exists but is not strong.")
-        else:
-            st.info("ℹ️ No statistically significant relationship between elderly population and bus coverage.")
+        # Display engine-generated insights
+        if insight_result['key_finding']:
+            st.markdown(insight_result['key_finding'])
 
         with st.expander("📊 Data Sources & Methodology"):
             st.markdown(f"""
@@ -841,53 +790,32 @@ else:
         fig.update_layout(height=500)
         st.plotly_chart(fig, use_container_width=True)
 
-        # Statistical analysis
-        corr, p_value = stats.pearsonr(lsoa_data['pct_no_car'].fillna(0), lsoa_data['stops_per_1000'])
+        # Generate insights using InsightEngine
+        insight_result = ENGINE.run_correlation(
+            df=lsoa_data,
+            x_col='pct_no_car',
+            y_col='stops_per_1000',
+            x_name='% Households Without Car',
+            y_name='Bus Coverage (stops/1000)',
+            metric_name='stops per 1,000',
+            dimension='car-free households',
+            sources=['ONS 2021 Census Table TS045', 'NaPTAN October 2025']
+        )
 
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("Correlation (r)", f"{corr:.3f}")
-        with col2:
-            st.metric("P-value", f"{p_value:.4f}")
-        with col3:
-            significance = "Significant" if p_value < 0.05 else "Not Significant"
-            st.metric("Statistical Significance", significance)
+        # Display metrics
+        if 'correlation' in insight_result['evidence']:
+            corr_data = insight_result['evidence']['correlation']
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Correlation (r)", f"{corr_data['r']:.3f}")
+            with col2:
+                st.metric("P-value", f"{corr_data['p']:.4f}")
+            with col3:
+                st.metric("Statistical Significance", "Significant" if corr_data['significant'] else "Not Significant")
 
-        # Weighted comparison
-        high_no_car = lsoa_data[lsoa_data['pct_no_car'] >= lsoa_data['pct_no_car'].quantile(0.75)]
-        low_no_car = lsoa_data[lsoa_data['pct_no_car'] <= lsoa_data['pct_no_car'].quantile(0.25)]
-
-        coverage_high_no_car = calculate_weighted_average_d(high_no_car, 'stops_per_1000')
-        coverage_low_no_car = calculate_weighted_average_d(low_no_car, 'stops_per_1000')
-
-        if coverage_low_no_car > 0:
-            gap_pct = ((coverage_high_no_car / coverage_low_no_car) - 1) * 100
-        else:
-            gap_pct = 0
-
-        st.markdown(f"""
-        **Weighted Analysis:**
-        - **High car dependency** (≤25th percentile no-car, {calculate_weighted_average_d(low_no_car, 'pct_no_car'):.1f}% without car): {coverage_low_no_car:.1f} stops per 1,000
-        - **Low car dependency** (≥75th percentile no-car, {calculate_weighted_average_d(high_no_car, 'pct_no_car'):.1f}% without car): {coverage_high_no_car:.1f} stops per 1,000
-        - **Gap**: {gap_pct:+.1f}%
-        """)
-
-        # Policy interpretation
-        if p_value < 0.05:
-            if corr > 0.3:
-                st.success(f"✅ **Positive correlation confirmed** (r={corr:.3f}, p={p_value:.4f}): "
-                          f"Areas with higher car dependency (low car ownership) receive {gap_pct:.1f}% better service. "
-                          f"This suggests policy-driven provision targeting car-free households.")
-            elif corr < -0.3:
-                st.error(f"⚠️ **Inverse relationship** (r={corr:.3f}, p={p_value:.4f}): "
-                        f"Low car ownership areas paradoxically receive worse service. This represents a critical "
-                        f"service gap where need is highest.")
-            else:
-                st.info(f"ℹ️ **Weak relationship** (r={corr:.3f}, p={p_value:.4f}): "
-                       f"Service provision appears independent of car ownership patterns. Policy may not target need effectively.")
-        else:
-            st.warning("⚠️ No significant relationship between car ownership and bus coverage. "
-                      "Service provision appears disconnected from transport need indicators.")
+        # Display engine-generated insights
+        if insight_result['key_finding']:
+            st.markdown(insight_result['key_finding'])
 
         with st.expander("📊 Data Sources & Methodology"):
             st.markdown(f"""
@@ -995,29 +923,22 @@ else:
         - **Well-served LSOAs** (within ±20% of expected): {len(lsoa_valid) - len(overserved) - len(underserved):,} ({(len(lsoa_valid) - len(overserved) - len(underserved))/len(lsoa_valid)*100:.1f}%)
         """)
 
-        # Interpretation
-        if p_value < 0.05:
-            if slope < 0.9:
-                st.success(f"✅ **Economies of scale detected** (exponent={slope:.3f}, p={p_value:.4f}): "
-                          f"Larger populations receive proportionally MORE stops per person. This is efficient "
-                          f"service planning leveraging urban density.")
-            elif slope > 1.1:
-                st.warning(f"⚠️ **Diseconomies of scale** (exponent={slope:.3f}, p={p_value:.4f}): "
-                          f"Larger populations require disproportionately MORE stops per person. This may indicate "
-                          f"sprawl or inefficient network design in dense areas.")
-            else:
-                st.info(f"ℹ️ **Linear scaling** (exponent={slope:.3f}, p={p_value:.4f}): "
-                       f"Stop provision scales approximately linearly with population. Consistent per-capita service.")
-        else:
-            st.warning("⚠️ No significant relationship between population and stop count. "
-                      "Service provision may be driven by factors other than population size.")
+        # Generate insights using InsightEngine
+        insight_result_d31 = ENGINE.run_power_law(
+            df=lsoa_valid,
+            x_col='total_population',
+            y_col='num_stops',
+            x_name='Population',
+            y_name='Stop Count',
+            sources=['ONS 2021 Census', 'NaPTAN October 2025']
+        )
 
-        # Highlight underserved areas
-        if len(underserved) > 0:
-            st.error(f"🚨 **Investment Priority Zones**: {len(underserved):,} LSOAs are significantly underserved relative to "
-                    f"their population size, affecting {underserved['total_population'].sum():,.0f} residents. "
-                    f"These areas require {(underserved['expected_stops'].sum() - underserved['num_stops'].sum()):,.0f} additional stops "
-                    f"to reach expected service levels.")
+        # Display engine-generated insights
+        if insight_result_d31['key_finding']:
+            st.markdown(insight_result_d31['key_finding'])
+
+        if insight_result_d31['recommendation']:
+            st.markdown(insight_result_d31['recommendation'])
 
         with st.expander("📊 Data Sources & Methodology"):
             st.markdown(f"""

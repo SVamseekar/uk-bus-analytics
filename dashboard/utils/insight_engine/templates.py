@@ -73,6 +73,23 @@ OUTLIER_TEMPLATE = env.from_string("""
 """.strip())
 
 
+QUARTILE_COMPARISON_TEMPLATE = env.from_string("""
+**{{ high_label }}** receive{{ 's' if 'areas' in high_label else '' }} **{{ high_value|num(1) }}** {{ metric_name }}, while **{{ low_label }}** receive{{ 's' if 'areas' in low_label else '' }} **{{ low_value|num(1) }}** {{ metric_name }} - a **{{ abs_gap|pct(0) }} gap**.
+
+{% if severity == 'critical' %}⚠️ This represents a **critical equity issue** requiring immediate policy intervention. {% elif severity == 'significant' %}This is a **significant disparity** warranting targeted investment. {% else %}This {{ abs_gap|pct(0) }} difference indicates moderate variation in service provision. {% endif %}{% if gap_pct < -15 %}Areas with greatest {{ dimension }} face systematically worse service, creating a double burden where need and provision are inversely aligned.{% elif gap_pct > 15 %}Service provision appears aligned with {{ dimension }}, suggesting policy-driven targeting of resources.{% else %}Service provision shows weak relationship with {{ dimension }}, suggesting other factors drive allocation decisions.{% endif %}
+""".strip())
+
+
+POWER_LAW_TEMPLATE = env.from_string("""
+{% if significant %}✅ **{{ scaling_type|title }} detected** (exponent={{ slope|num(3) }}, p={{ p_value|num(4) }}): {{ interpretation }}. {% if efficiency == 'efficient' %}This demonstrates efficient service planning that leverages urban density.{% elif efficiency == 'inefficient' %}This may indicate sprawl or inefficient network design in dense areas.{% else %}Service provision maintains consistent per-capita coverage across population scales.{% endif %}{% else %}⚠️ No significant relationship between population size and stop count (p={{ p_value|num(4) }}). Service provision may be driven by factors other than population scale.{% endif %}
+""".strip())
+
+
+EFFICIENCY_TEMPLATE = env.from_string("""
+🚨 **Investment Priority Zones**: {{ n_underserved|num(0) }} LSOAs ({{ pct_underserved_lsoas|pct(1) }}) are significantly underserved relative to their population size, affecting {{ pop_underserved|num(0) }} residents ({{ pct_underserved_pop|pct(1) }} of population). These areas require approximately {{ additional_stops_needed|num(0) }} additional stops to reach expected service levels based on population-driven demand patterns.
+""".strip())
+
+
 # ============================================================================
 # RECOMMENDATION TEMPLATES
 # ============================================================================
@@ -122,8 +139,11 @@ class TemplateRenderer:
             ('summary', 'subset_description'): SUBSET_DESCRIPTION_TEMPLATE,
             ('key_finding', 'variation'): VARIATION_TEMPLATE,
             ('key_finding', 'correlation'): CORRELATION_TEMPLATE,
+            ('key_finding', 'quartile_comparison'): QUARTILE_COMPARISON_TEMPLATE,
+            ('key_finding', 'power_law'): POWER_LAW_TEMPLATE,
             ('key_finding', 'outliers'): OUTLIER_TEMPLATE,
             ('recommendation', 'gap_investment'): GAP_INVESTMENT_TEMPLATE,
+            ('recommendation', 'efficiency'): EFFICIENCY_TEMPLATE,
             ('investment', 'investment_detail'): INVESTMENT_DETAIL_TEMPLATE,
         }
 
