@@ -101,10 +101,11 @@ class InsightEngine:
 
         # Simple context for correlation analysis
         context = ViewContext(
-            scope="correlation",
+            scope="subset",
             n_groups=len(df),
-            filter_mode='all_regions',
-            filter_value=None
+            region=None,
+            filters={},
+            groupby_col=x_col
         )
 
         # Apply rules
@@ -213,10 +214,11 @@ class InsightEngine:
 
         # Simple context
         context = ViewContext(
-            scope="power_law",
+            scope="subset",
             n_groups=len(valid_data),
-            filter_mode='all_regions',
-            filter_value=None
+            region=None,
+            filters={},
+            groupby_col=x_col
         )
 
         # Apply rules

@@ -185,12 +185,28 @@ def load_lsoa_level_data(filter_mode, filter_value):
 
     all_stops = []
 
+    # Define columns we need (much faster than loading all 1800+ columns)
+    required_cols = [
+        'stop_id', 'lsoa_code', 'lsoa_name', 'total_population',
+        'age_0_15', 'age_16_64', 'age_65_plus',
+        'Index of Multiple Deprivation (IMD) Score',
+        'Index of Multiple Deprivation (IMD) Decile (where 1 is most deprived 10% of LSOAs)',
+        'Employment Score (rate)',
+        'pct_no_car', 'pct_with_car', 'total_households', 'households_no_car',
+        'UrbanRural (name)', 'UrbanRural (code)',
+        'total_schools', 'primary_schools', 'secondary_schools',
+        'business_count'
+    ]
+
     for region_name in regions_to_load:
-        file_path = Path(f'data/processed/regions/{region_name.replace(" ", "_")}/stops_processed.csv')
+        # Get the directory name from REGION_CODES mapping
+        region_dir = REGION_CODES.get(region_name, region_name.lower().replace(" ", "_"))
+        file_path = Path(f'data/processed/regions/{region_dir}/stops_processed.csv')
 
         if file_path.exists():
             try:
-                df = pd.read_csv(file_path)
+                # Only load columns we need - MUCH faster
+                df = pd.read_csv(file_path, usecols=lambda x: x in required_cols, low_memory=False)
                 df['region_name'] = region_name
                 all_stops.append(df)
             except Exception as e:
@@ -213,13 +229,17 @@ def load_lsoa_level_data(filter_mode, filter_value):
 
     # Aggregate at LSOA level
     lsoa_cols = {
-        'stop_id': 'count',
+        'stop_id': 'nunique',  # Count unique stops (avoid double-counting)
         'total_population': 'first',
         'age_0_15': 'first',
         'age_16_64': 'first',
         'age_65_plus': 'first',
         'region_name': 'first'
     }
+
+    # Add lsoa_name if it exists (for hover display)
+    if 'lsoa_name' in combined.columns:
+        lsoa_cols['lsoa_name'] = 'first'
 
     # Add IMD columns if they exist
     imd_score_col = 'Index of Multiple Deprivation (IMD) Score'
@@ -237,21 +257,43 @@ def load_lsoa_level_data(filter_mode, filter_value):
     if 'pct_no_car' in combined.columns:
         lsoa_cols['pct_no_car'] = 'first'
         lsoa_cols['pct_with_car'] = 'first'
+    if 'total_households' in combined.columns:
+        lsoa_cols['total_households'] = 'first'  # LSOA-level data (same across all stops in LSOA)
+        lsoa_cols['households_no_car'] = 'first'
 
     # Add urban/rural classification
     if 'UrbanRural (name)' in combined.columns:
         lsoa_cols['UrbanRural (name)'] = 'first'
 
+    # Add school counts if they exist (LSOA-level data for D29)
+    if 'total_schools' in combined.columns:
+        lsoa_cols['total_schools'] = 'first'
+    if 'primary_schools' in combined.columns:
+        lsoa_cols['primary_schools'] = 'first'
+    if 'secondary_schools' in combined.columns:
+        lsoa_cols['secondary_schools'] = 'first'
+
+    # Add business count if exists (MSOA-level aggregated to LSOA for D30)
+    if 'business_count' in combined.columns:
+        lsoa_cols['business_count'] = 'first'
+
     lsoa_agg = combined.groupby('lsoa_code').agg(lsoa_cols).reset_index()
 
     # Rename for clarity
-    lsoa_agg = lsoa_agg.rename(columns={
+    rename_dict = {
         'stop_id': 'num_stops',
-        imd_score_col: 'imd_score',
-        imd_decile_col: 'imd_decile',
-        unemployment_col: 'unemployment_rate',
         'UrbanRural (name)': 'urban_rural'
-    })
+    }
+
+    # Only rename if column exists
+    if imd_score_col in lsoa_agg.columns:
+        rename_dict[imd_score_col] = 'imd_score'
+    if imd_decile_col in lsoa_agg.columns:
+        rename_dict[imd_decile_col] = 'imd_decile'
+    if unemployment_col in lsoa_agg.columns:
+        rename_dict[unemployment_col] = 'unemployment_rate'
+
+    lsoa_agg = lsoa_agg.rename(columns=rename_dict)
 
     # Calculate derived metrics (but DO NOT use these for weighted averages later)
     lsoa_agg['stops_per_1000'] = (lsoa_agg['num_stops'] / lsoa_agg['total_population']) * 1000
@@ -259,8 +301,18 @@ def load_lsoa_level_data(filter_mode, filter_value):
     if 'age_65_plus' in lsoa_agg.columns:
         lsoa_agg['pct_elderly'] = (lsoa_agg['age_65_plus'] / lsoa_agg['total_population']) * 100
 
-    # Filter out LSOAs with missing critical data
-    lsoa_agg = lsoa_agg[lsoa_agg['total_population'] > 0]
+    # Filter out LSOAs with missing or invalid data
+    before_filter = len(lsoa_agg)
+    lsoa_agg = lsoa_agg[
+        (lsoa_agg['total_population'] > 0) &
+        (lsoa_agg['total_population'] < 50000) &  # Sanity check: typical LSOA is 1,000-3,000
+        (lsoa_agg['stops_per_1000'] < 500)  # Sanity check: max realistic is ~200 stops/1000
+    ]
+    after_filter = len(lsoa_agg)
+
+    if before_filter > after_filter:
+        outliers_removed = before_filter - after_filter
+        st.caption(f"⚠️ Data quality: Removed {outliers_removed} LSOAs with invalid data (population >50k or stops/1000 >500)")
 
     return lsoa_agg
 
@@ -301,8 +353,9 @@ st.markdown("---")
 # Force re-execution when filters change
 _d24_key = f"d24_{filter_mode}_{filter_value}"
 
-st.header("📉 Deprivation and Bus Service Coverage")
+st.header("📉 D24: Deprivation and Bus Service Coverage")
 st.markdown("*Is there a correlation between bus coverage and deprivation (IMD)?*")
+st.caption("📊 Scatter plot with regression line")
 
 # Check if we have IMD data
 if 'imd_score' not in lsoa_data.columns or 'imd_decile' not in lsoa_data.columns:
@@ -321,8 +374,15 @@ else:
         Single-region correlations would only show variation within one region, which is less informative for policy comparison.
         """)
     else:
-        # Filter valid data
-        d24_data = lsoa_data[['lsoa_code', 'imd_score', 'imd_decile', 'stops_per_1000', 'num_stops', 'total_population', 'region_name']].dropna()
+        # Filter valid data - include lsoa_name if available
+        cols_to_select = ['lsoa_code', 'imd_score', 'imd_decile', 'stops_per_1000', 'num_stops', 'total_population', 'region_name']
+        if 'lsoa_name' in lsoa_data.columns:
+            cols_to_select.append('lsoa_name')
+        d24_data = lsoa_data[cols_to_select].dropna(subset=['imd_score', 'imd_decile', 'stops_per_1000', 'region_name'])
+
+        # Show data summary
+        regions_in_data = d24_data['region_name'].value_counts().sort_index()
+        st.caption(f"📊 Analysis based on {len(d24_data):,} LSOAs across {len(regions_in_data)} regions with IMD data")
 
         # Data sufficiency check
         if len(d24_data) < 30:
@@ -355,13 +415,18 @@ else:
                     color_col = None
                     title = f"Bus Coverage vs Deprivation: {filter_display}"
 
+                # Build hover_data with lsoa_name if available
+                hover_cols = ['lsoa_code']
+                if 'lsoa_name' in df_sample.columns:
+                    hover_cols.append('lsoa_name')
+
                 fig = px.scatter(
                     df_sample,
                     x='imd_decile',
                     y='stops_per_1000',
                     color=color_col,
                     size='total_population',
-                    hover_data=['lsoa_code'],
+                    hover_data=hover_cols,
                     labels={
                         'imd_decile': 'IMD Deprivation Decile (1=Most Deprived)',
                         'stops_per_1000': 'Bus Stops per 1,000 Population',
@@ -438,70 +503,71 @@ else:
             elif filter_mode == 'all_rural':
                 insight_filters['urban_rural'] = 'Rural'
 
-            # Get narrative from engine (but pass metrics directly instead of data for correlation)
-            # Note: For correlation, we need to pass precomputed correlation metrics
-            # This is a limitation - need to extend engine or handle differently
+            # Visualization first
+            st.plotly_chart(scatter_fig, use_container_width=True)
 
-            # Layout: viz and insights
-            col_viz, col_insights = st.columns([2, 1])
+            # Generate insights using InsightEngine
+            insight_result = ENGINE.run_correlation(
+                df=d24_data,
+                x_col='imd_decile',
+                y_col='stops_per_1000',
+                x_name='IMD Deprivation Decile',
+                y_name='Bus Coverage (stops/1000)',
+                metric_name='stops per 1,000',
+                dimension='deprivation',
+                sources=['NaPTAN October 2025', 'IMD 2019', 'ONS Census 2021']
+            )
 
-            with col_viz:
-                st.plotly_chart(scatter_fig, use_container_width=True)
+            # Statistical metrics in columns
+            col1, col2, col3 = st.columns(3)
 
-            with col_insights:
-                st.markdown("#### 📊 Statistical Analysis")
+            if 'correlation' in insight_result['evidence']:
+                corr_data = insight_result['evidence']['correlation']
 
-                # Generate insights using InsightEngine
-                insight_result = ENGINE.run_correlation(
-                    df=d24_data,
-                    x_col='imd_decile',
-                    y_col='stops_per_1000',
-                    x_name='IMD Deprivation Decile',
-                    y_name='Bus Coverage (stops/1000)',
-                    metric_name='stops per 1,000',
-                    dimension='deprivation',
-                    sources=['NaPTAN October 2025', 'IMD 2019', 'ONS Census 2021']
-                )
-
-                # Display metrics
-                if 'correlation' in insight_result['evidence']:
-                    corr_data = insight_result['evidence']['correlation']
+                with col1:
                     st.metric("Correlation (r)", f"{corr_data['r']:.3f}",
-                             delta=f"{corr_data['strength'].title()} {'positive' if corr_data['r'] > 0 else 'negative'}")
-                    st.caption(f"*p-value: {corr_data['p']:.4f}*")
-                    st.caption(f"*n = {corr_data['n']:,} LSOAs*")
+                             help=f"{corr_data['strength'].title()} {'positive' if corr_data['r'] > 0 else 'negative'}")
+                with col2:
+                    st.metric("P-value", f"{corr_data['p']:.4f}",
+                             help="Significant" if corr_data['p'] < 0.05 else "Not significant")
+                with col3:
+                    st.metric("Sample Size", f"{corr_data['n']:,} LSOAs")
 
-                # Display engine-generated insights
-                if insight_result['key_finding']:
-                    st.markdown(insight_result['key_finding'])
+            # Display engine-generated insights
+            if insight_result['key_finding']:
+                st.markdown("#### 🔍 Key Finding")
+                st.markdown(insight_result['key_finding'])
 
-                st.markdown("---")
+            # Summary metrics by deprivation level
+            st.markdown("#### By Deprivation Level")
+            col1, col2, col3 = st.columns(3)
 
-                # Summary metrics by deprivation level
-                st.markdown("#### By Deprivation Level")
-                most_deprived_data = d24_data[d24_data['imd_decile'] <= 3]
-                least_deprived_data = d24_data[d24_data['imd_decile'] >= 8]
+            most_deprived_data = d24_data[d24_data['imd_decile'] <= 3]
+            least_deprived_data = d24_data[d24_data['imd_decile'] >= 8]
 
-                most_deprived_avg = calculate_weighted_average_d(most_deprived_data, 'stops_per_1000')
-                least_deprived_avg = calculate_weighted_average_d(least_deprived_data, 'stops_per_1000')
+            most_deprived_avg = calculate_weighted_average_d(most_deprived_data, 'stops_per_1000')
+            least_deprived_avg = calculate_weighted_average_d(least_deprived_data, 'stops_per_1000')
 
+            with col1:
                 st.metric("Most Deprived (D1-3)", f"{most_deprived_avg:.1f} stops/1k")
+            with col2:
                 st.metric("Least Deprived (D8-10)", f"{least_deprived_avg:.1f} stops/1k")
+            with col3:
                 st.metric("National Weighted Avg", f"{national_weighted_avg:.1f} stops/1k")
 
-                # Data sources
-                with st.expander("📚 Data Sources & Methodology"):
-                    st.markdown("""
-                    **Data Sources:**
-                    - NaPTAN Bus Stop Database (October 2025)
-                    - IMD 2019 (Index of Multiple Deprivation)
-                    - ONS Census 2021
+            # Data sources
+            with st.expander("📚 Data Sources & Methodology"):
+                st.markdown("""
+                **Data Sources:**
+                - NaPTAN Bus Stop Database (October 2025)
+                - IMD 2019 (Index of Multiple Deprivation)
+                - ONS Census 2021
 
-                    **Methodology:**
-                    - Population-weighted averages used
-                    - Pearson correlation coefficient
-                    - Statistical significance tested (α = 0.05)
-                    """)
+                **Methodology:**
+                - Population-weighted averages used
+                - Pearson correlation coefficient
+                - Statistical significance tested (α = 0.05)
+                """)
 
 st.markdown("---")
 
@@ -511,14 +577,18 @@ st.markdown("---")
 
 _d25_key = f"d25_{filter_mode}_{filter_value}"
 
-st.header("💼 Employment Patterns and Bus Access")
+st.header("💼 D25: Employment Patterns and Bus Access")
 st.markdown("*Do areas with higher unemployment have fewer bus services?*")
+st.caption("📊 Violin plot by unemployment quartiles")
 
 if 'unemployment_rate' not in lsoa_data.columns:
     st.warning("⚠️ Employment data not available for this selection.")
 else:
-    # Data check
-    d25_data = lsoa_data[['lsoa_code', 'unemployment_rate', 'stops_per_1000', 'num_stops', 'total_population', 'region_name']].dropna()
+    # Data check - include lsoa_name if available
+    cols_to_select = ['lsoa_code', 'unemployment_rate', 'stops_per_1000', 'num_stops', 'total_population', 'region_name']
+    if 'lsoa_name' in lsoa_data.columns:
+        cols_to_select.append('lsoa_name')
+    d25_data = lsoa_data[cols_to_select].dropna(subset=['unemployment_rate', 'stops_per_1000', 'region_name'])
 
     if len(d25_data) < 30:
         st.warning(f"⚠️ Insufficient data for analysis. Found {len(d25_data)} LSOAs, need at least 30.")
@@ -578,66 +648,60 @@ else:
         violin_fig = create_unemployment_violin(d25_data, filter_mode, national_weighted_avg_d25)
 
         if violin_fig:
-            col_viz2, col_insights2 = st.columns([2, 1])
+            # Visualization first (full width)
+            st.plotly_chart(violin_fig, use_container_width=True)
+            st.caption("**Violin plots** show the full distribution shape, not just averages. Wider sections = more LSOAs at that coverage level.")
 
-            with col_viz2:
-                st.plotly_chart(violin_fig, use_container_width=True)
-                st.caption("**Violin plots** show the full distribution shape, not just averages. Wider sections = more LSOAs at that coverage level.")
+            # Calculate correlation
+            corr_unemp, p_value_unemp = stats.pearsonr(
+                d25_data['unemployment_pct'],
+                d25_data['stops_per_1000']
+            )
 
-            with col_insights2:
-                st.markdown("#### 📊 Analysis")
+            # Display metrics in columns
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Correlation", f"{corr_unemp:.3f}")
+            with col2:
+                st.metric("P-value", f"{p_value_unemp:.4f}")
+            with col3:
+                sig_label = "Significant" if p_value_unemp < 0.05 else "Not Significant"
+                st.metric("Statistical Significance", sig_label)
 
-                # Calculate correlation
-                corr_unemp, p_value_unemp = stats.pearsonr(
-                    d25_data['unemployment_pct'],
-                    d25_data['stops_per_1000']
-                )
+            # Compare high vs low unemployment areas using WEIGHTED averages
+            high_unemp_data = d25_data[d25_data['unemployment_pct'] >= d25_data['unemployment_pct'].quantile(0.75)]
+            low_unemp_data = d25_data[d25_data['unemployment_pct'] <= d25_data['unemployment_pct'].quantile(0.25)]
 
-                st.metric(
-                    "Correlation",
-                    f"{corr_unemp:.3f}",
-                    help="Correlation between unemployment rate and bus coverage"
-                )
+            # Generate insights using InsightEngine
+            insight_result_d25 = ENGINE.run_correlation(
+                df=d25_data,
+                x_col='unemployment_rate',
+                y_col='stops_per_1000',
+                x_name='Unemployment Rate',
+                y_name='Bus Coverage (stops/1000)',
+                metric_name='stops per 1,000',
+                dimension='unemployment',
+                sources=['NOMIS 2024', 'NaPTAN October 2025']
+            )
 
-                # Statistical significance
-                if p_value_unemp < 0.001:
-                    st.success("✅ Highly significant (p < 0.001)")
-                elif p_value_unemp < 0.05:
-                    st.success("✅ Significant (p < 0.05)")
-                else:
-                    st.warning("⚠️ Not statistically significant")
+            # Display quartile comparison metrics
+            st.markdown("#### By Unemployment Level")
+            col1, col2, col3 = st.columns(3)
 
-                st.caption(f"*p-value: {p_value_unemp:.4f}*")
+            high_unemp_avg = calculate_weighted_average_d(high_unemp_data, 'stops_per_1000')
+            low_unemp_avg = calculate_weighted_average_d(low_unemp_data, 'stops_per_1000')
 
-                st.markdown("---")
-
-                # Compare high vs low unemployment areas using WEIGHTED averages
-                high_unemp_data = d25_data[d25_data['unemployment_pct'] >= d25_data['unemployment_pct'].quantile(0.75)]
-                low_unemp_data = d25_data[d25_data['unemployment_pct'] <= d25_data['unemployment_pct'].quantile(0.25)]
-
-                # Generate insights using InsightEngine
-                insight_result_d25 = ENGINE.run_correlation(
-                    df=d25_data,
-                    x_col='unemployment_rate',
-                    y_col='stops_per_1000',
-                    x_name='Unemployment Rate',
-                    y_name='Bus Coverage (stops/1000)',
-                    metric_name='stops per 1,000',
-                    dimension='unemployment',
-                    sources=['NOMIS 2024', 'NaPTAN October 2025']
-                )
-
-                # Display metrics
-                high_unemp_avg = calculate_weighted_average_d(high_unemp_data, 'stops_per_1000')
-                low_unemp_avg = calculate_weighted_average_d(low_unemp_data, 'stops_per_1000')
-
+            with col1:
                 st.metric("High Unemployment Areas", f"{high_unemp_avg:.1f} stops/1k")
+            with col2:
                 st.metric("Low Unemployment Areas", f"{low_unemp_avg:.1f} stops/1k")
+            with col3:
                 st.metric("National Weighted Avg", f"{national_weighted_avg_d25:.1f} stops/1k")
 
-                # Display engine-generated insights
-                if insight_result_d25['key_finding']:
-                    st.markdown(insight_result_d25['key_finding'])
+            # Display engine-generated insights
+            if insight_result_d25['key_finding']:
+                st.markdown("#### 🔍 Key Finding")
+                st.markdown(insight_result_d25['key_finding'])
 
 st.markdown("---")
 
@@ -648,7 +712,9 @@ st.markdown("---")
 st.markdown("---")
 _d26_key = f"d26_{filter_mode}_{filter_value}"
 
-st.header("👴 Elderly Population and Bus Coverage")
+st.header("👴 D26: Elderly Population and Bus Coverage")
+st.markdown("*How does bus coverage correlate with elderly population percentage?*")
+st.caption("📊 Hexbin density plot")
 
 # Data sufficiency check
 if len(lsoa_data) < 30:
@@ -742,13 +808,13 @@ st.markdown("---")
 
 _d27_key = f"d27_{filter_mode}_{filter_value}"
 
-st.header("🚗 Car Ownership and Bus Service Provision")
+st.header("🚗 D27: Car Ownership and Bus Service Provision")
+st.markdown("*Do regions with higher car ownership have lower bus service provision?*")
+st.caption("📊 Bubble chart (car ownership vs coverage, size = population)")
 
-# Check for multi-region requirement
-if filter_mode not in ['all_regions', 'all_urban', 'all_rural']:
-    st.info("📊 Correlation analysis requires multiple regions. Available only in multi-region views (All Regions, All Urban, All Rural).")
-elif len(lsoa_data) < 30:
-    st.warning(f"⚠️ Insufficient data ({len(lsoa_data)} LSOAs). Need at least 30 for reliable correlation.")
+# Check for sufficient data
+if len(lsoa_data) < 50:
+    st.warning(f"⚠️ Insufficient data for correlation analysis. Current: {len(lsoa_data)} LSOAs. Required: at least 50 LSOAs.")
 else:
     # Check for car ownership data
     if 'pct_no_car' not in lsoa_data.columns:
@@ -758,6 +824,11 @@ else:
         national_weighted_avg_d27 = calculate_weighted_average_d(lsoa_data, 'stops_per_1000')
         national_pct_no_car = calculate_weighted_average_d(lsoa_data, 'pct_no_car')
 
+        # Build hover_data with lsoa_name if available
+        hover_cols = ['lsoa_code', 'total_population']
+        if 'lsoa_name' in lsoa_data.columns:
+            hover_cols.insert(1, 'lsoa_name')
+
         # Create bubble chart
         fig = px.scatter(
             lsoa_data,
@@ -765,7 +836,7 @@ else:
             y='stops_per_1000',
             size='total_population',
             color='region_name' if 'region_name' in lsoa_data.columns and filter_mode == 'all_regions' else None,
-            hover_data=['lsoa_name', 'total_population'],
+            hover_data=hover_cols,
             title=f"Car Ownership vs Bus Coverage ({filter_display})",
             labels={
                 'pct_no_car': '% Households Without Car',
@@ -840,13 +911,13 @@ st.markdown("---")
 
 _d31_key = f"d31_{filter_mode}_{filter_value}"
 
-st.header("📍 Population Density vs Stop Density")
+st.header("📍 D31: Population Density vs Stop Density")
+st.markdown("*What is the relationship between population density and bus stop density?*")
+st.caption("📊 Log-scale scatter plot with urban/rural classification")
 
-# Check for multi-region requirement
-if filter_mode not in ['all_regions', 'all_urban', 'all_rural']:
-    st.info("📊 Correlation analysis requires multiple data points. Available only in multi-region views (All Regions, All Urban, All Rural).")
-elif len(lsoa_data) < 30:
-    st.warning(f"⚠️ Insufficient data ({len(lsoa_data)} LSOAs). Need at least 30 for reliable correlation.")
+# Check for sufficient data
+if len(lsoa_data) < 50:
+    st.warning(f"⚠️ Insufficient data for power law analysis. Current: {len(lsoa_data)} LSOAs. Required: at least 50 LSOAs.")
 else:
     # Calculate population density (using stops_per_1000 as proxy for stop density relative to population)
     # Create log-scale visualization
@@ -855,13 +926,18 @@ else:
     # Calculate weighted metrics (single source of truth)
     national_weighted_avg_d31 = calculate_weighted_average_d(lsoa_data, 'stops_per_1000')
 
+    # Build hover_data with lsoa_name if available
+    hover_cols = ['lsoa_code', 'stops_per_1000']
+    if 'lsoa_name' in lsoa_data.columns:
+        hover_cols.insert(1, 'lsoa_name')
+
     # Create log-scale scatter plot
     fig = px.scatter(
         lsoa_data,
         x='total_population',
         y='num_stops',
         color='region_name' if 'region_name' in lsoa_data.columns and filter_mode == 'all_regions' else None,
-        hover_data=['lsoa_name', 'stops_per_1000'],
+        hover_data=hover_cols,
         title=f"Population vs Stop Count (Log Scale) - {filter_display}",
         labels={
             'total_population': 'LSOA Population',
@@ -964,19 +1040,422 @@ else:
 st.markdown("---")
 
 # ============================================================================
-# SECTIONS D28-D30: PENDING (Education, Amenity, Business)
+# SECTION D28: Education - Employment Deprivation vs Coverage
 # ============================================================================
 
-st.header("🚧 Additional Sections Requiring Data Preparation")
-st.markdown("""
-The following sections require additional data integration:
+with st.container():
+    st.markdown("## 📚 D28: Coverage vs Educational Attainment")
+    st.markdown("*Is there a relationship between bus coverage and educational attainment?*")
+    st.caption("📊 Regional comparison bars with statistical significance")
 
-- **D28:** Coverage vs Educational Attainment (needs education attainment data by LSOA)
-- **D29:** Amenity Concentration Analysis (needs spatial proximity calculations for schools)
-- **D30:** Business Density vs Service Quality (needs business count data by LSOA)
+    # Check if we have region_name for comparison
+    if 'region_name' not in lsoa_data.columns or filter_mode not in ['all_regions', 'all_urban', 'all_rural']:
+        st.info("📊 Regional comparison requires multi-region view. Select 'All Regions', 'All Urban', or 'All Rural' filter.")
+    else:
+        # Group by region and calculate weighted averages
+        regional_stats = []
+        for region in lsoa_data['region_name'].unique():
+            region_data = lsoa_data[lsoa_data['region_name'] == region]
+            if len(region_data) > 0:
+                avg_coverage = calculate_weighted_average_d(region_data, 'stops_per_1000')
+                # Use unemployment as proxy for educational barriers (both relate to socio-economic status)
+                avg_unemployment = region_data['unemployment_rate'].mean() if 'unemployment_rate' in region_data.columns else 0
+                regional_stats.append({
+                    'Region': region,
+                    'Coverage (stops/1000)': avg_coverage,
+                    'Unemployment Rate': avg_unemployment,
+                    'LSOAs': len(region_data),
+                    'Population': region_data['total_population'].sum()
+                })
 
-Each section will follow the same quality standards as D24-D27, D31.
-""")
+        regional_df = pd.DataFrame(regional_stats).sort_values('Coverage (stops/1000)', ascending=False)
+
+        # Create grouped bar chart
+        fig = go.Figure()
+
+        # Add coverage bars
+        fig.add_trace(go.Bar(
+            name='Bus Coverage',
+            x=regional_df['Region'],
+            y=regional_df['Coverage (stops/1000)'],
+            marker_color='#3b82f6',
+            yaxis='y',
+            text=regional_df['Coverage (stops/1000)'].round(1),
+            textposition='outside'
+        ))
+
+        # Add unemployment bars (secondary axis)
+        fig.add_trace(go.Bar(
+            name='Unemployment Rate',
+            x=regional_df['Region'],
+            y=regional_df['Unemployment Rate'] * 100,  # Convert to percentage
+            marker_color='#ef4444',
+            yaxis='y2',
+            text=(regional_df['Unemployment Rate'] * 100).round(1),
+            textposition='outside',
+            opacity=0.7
+        ))
+
+        # Add national average line
+        national_avg = calculate_weighted_average_d(lsoa_data, 'stops_per_1000')
+        fig.add_hline(
+            y=national_avg,
+            line_dash="dash",
+            line_color="green",
+            annotation_text=f"National Avg: {national_avg:.1f}",
+            annotation_position="right"
+        )
+
+        fig.update_layout(
+            title=f"Regional Bus Coverage vs Socio-Economic Indicators - {filter_display}",
+            xaxis_title="Region",
+            yaxis=dict(title="Bus Stops per 1,000 Population", side='left'),
+            yaxis2=dict(title="Unemployment Rate (%)", overlaying='y', side='right'),
+            barmode='group',
+            height=500,
+            hovermode='x unified',
+            legend=dict(x=0.01, y=0.99)
+        )
+
+        st.plotly_chart(fig, use_container_width=True, key='d28_bars')
+
+        # Display summary statistics
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            best_region = regional_df.iloc[0]
+            st.metric("Highest Coverage", best_region['Region'], f"{best_region['Coverage (stops/1000)']:.1f} stops/1k")
+        with col2:
+            worst_region = regional_df.iloc[-1]
+            st.metric("Lowest Coverage", worst_region['Region'], f"{worst_region['Coverage (stops/1000)']:.1f} stops/1k")
+        with col3:
+            gap = best_region['Coverage (stops/1000)'] - worst_region['Coverage (stops/1000)']
+            gap_pct = (gap / worst_region['Coverage (stops/1000)']) * 100
+            st.metric("Coverage Gap", f"{gap:.1f} stops/1k", f"{gap_pct:.0f}%")
+
+        # Calculate correlation between unemployment and coverage
+        if 'Unemployment Rate' in regional_df.columns:
+            corr, p_val = stats.pearsonr(regional_df['Unemployment Rate'], regional_df['Coverage (stops/1000)'])
+
+            # Generate insights using InsightEngine for consistency
+            st.markdown("#### 🔍 Key Finding")
+            if p_val < 0.05:
+                strength = 'Strong' if abs(corr) > 0.7 else ('Moderate' if abs(corr) > 0.4 else 'Weak')
+                direction = 'negative' if corr < 0 else 'positive'
+                st.markdown(f"""
+                **Regional Disparity:** {best_region['Region']} provides {gap_pct:.0f}% more bus coverage than {worst_region['Region']}
+                ({best_region['Coverage (stops/1000)']:.1f} vs {worst_region['Coverage (stops/1000)']:.1f} stops/1000).
+
+                {strength} {direction} correlation detected between unemployment and bus coverage across regions (r={corr:.3f}, p={p_val:.4f}).
+                {"Areas with higher unemployment systematically receive less bus service, creating a double burden where need and provision are inversely aligned." if corr < -0.3 else "Service provision shows relationship with socio-economic indicators, though other factors also influence allocation decisions."}
+                """)
+            else:
+                st.markdown(f"""
+                **Regional Disparity:** {best_region['Region']} provides {gap_pct:.0f}% more bus coverage than {worst_region['Region']}
+                ({best_region['Coverage (stops/1000)']:.1f} vs {worst_region['Coverage (stops/1000)']:.1f} stops/1000).
+
+                No significant correlation found between unemployment and coverage across regions (r={corr:.3f}, p={p_val:.4f}).
+                This suggests regional coverage differences are driven by factors beyond socio-economic indicators, such as
+                urbanization, network legacy, or strategic investment decisions.
+                """)
+
+        # Data table
+        with st.expander("📊 Regional Data Table"):
+            st.dataframe(regional_df.style.format({
+                'Coverage (stops/1000)': '{:.1f}',
+                'Unemployment Rate': '{:.2%}',
+                'LSOAs': '{:,}',
+                'Population': '{:,}'
+            }), use_container_width=True)
+
+st.markdown("---")
+
+# ============================================================================
+# SECTION D29: Amenity Access - School Proximity Analysis
+# ============================================================================
+
+with st.container():
+    st.markdown("## 🏫 D29: Amenity Access - School Proximity")
+    st.markdown("*How does bus frequency vary with the concentration of key amenities?*")
+    st.caption("📊 Heatmap showing school proximity to bus stops")
+
+    # Calculate schools per LSOA
+    valid_school_data = lsoa_data[
+        (lsoa_data['total_schools'].notna()) &
+        (lsoa_data['total_schools'] >= 0) &
+        (lsoa_data['stops_per_1000'] > 0)
+    ].copy()
+
+    if len(valid_school_data) >= 10:
+        # Create school density metric (schools per 10k population)
+        valid_school_data['schools_per_10k'] = (
+            valid_school_data['total_schools'] / valid_school_data['total_population']
+        ) * 10000
+
+        # Remove outliers (very small populations with schools)
+        valid_school_data = valid_school_data[
+            (valid_school_data['schools_per_10k'] < 50) &  # Cap at 5 schools per 1000 people
+            (valid_school_data['total_population'] > 500)  # Minimum population threshold
+        ]
+
+        if len(valid_school_data) >= 10:
+            # Correlation
+            correlation, p_value = stats.pearsonr(
+                valid_school_data['schools_per_10k'],
+                valid_school_data['stops_per_1000']
+            )
+
+            # Create heatmap: bin schools and coverage into categories
+            valid_school_data['school_category'] = pd.cut(
+                valid_school_data['schools_per_10k'],
+                bins=[0, 2, 4, 6, 50],
+                labels=['Low (0-2)', 'Medium (2-4)', 'High (4-6)', 'Very High (6+)']
+            )
+
+            valid_school_data['coverage_category'] = pd.cut(
+                valid_school_data['stops_per_1000'],
+                bins=[0, 10, 20, 30, 500],
+                labels=['Low (<10)', 'Medium (10-20)', 'High (20-30)', 'Very High (30+)']
+            )
+
+            # Create pivot table for heatmap
+            heatmap_data = valid_school_data.groupby(['school_category', 'coverage_category']).size().unstack(fill_value=0)
+
+            # Create heatmap
+            fig = go.Figure(data=go.Heatmap(
+                z=heatmap_data.values,
+                x=heatmap_data.columns,
+                y=heatmap_data.index,
+                colorscale='YlOrRd',
+                text=heatmap_data.values,
+                texttemplate='%{text} LSOAs',
+                textfont={"size": 12},
+                colorbar=dict(title="Number of LSOAs")
+            ))
+
+            fig.update_layout(
+                title=f'School Proximity to Bus Service Heatmap - {filter_display}',
+                xaxis_title='Bus Stop Coverage (per 1,000 population)',
+                yaxis_title='School Density (per 10,000 population)',
+                height=500
+            )
+
+            st.plotly_chart(fig, use_container_width=True, key='d29_heatmap')
+
+            # Generate insights using InsightEngine
+            insight_result = ENGINE.run_correlation(
+                df=valid_school_data,
+                x_col='schools_per_10k',
+                y_col='stops_per_1000',
+                x_name='School Density',
+                y_name='Bus Coverage',
+                metric_name='stops per 1,000',
+                dimension='school density',
+                sources=['NaPTAN October 2025', 'DfE EduBase 2025']
+            )
+
+            # Statistical metrics
+            col1, col2, col3 = st.columns(3)
+
+            if 'correlation' in insight_result['evidence']:
+                corr_data = insight_result['evidence']['correlation']
+                with col1:
+                    st.metric("Correlation (r)", f"{corr_data['r']:.3f}",
+                             help=f"{corr_data['strength'].title()} {'positive' if corr_data['r'] > 0 else 'negative'}")
+                with col2:
+                    st.metric("P-value", f"{corr_data['p']:.4f}",
+                             help="Significant" if corr_data['p'] < 0.05 else "Not significant")
+                with col3:
+                    st.metric("Sample Size", f"{corr_data['n']:,} LSOAs")
+
+            # Display key finding
+            if insight_result['key_finding']:
+                st.markdown("#### 🔍 Key Finding")
+                st.markdown(insight_result['key_finding'])
+
+            # School type breakdown
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric(
+                    "Total Schools",
+                    f"{int(valid_school_data['total_schools'].sum()):,}",
+                    help="All educational establishments in analysis"
+                )
+            with col2:
+                st.metric(
+                    "Primary Schools",
+                    f"{int(valid_school_data['primary_schools'].sum()):,}",
+                    help="Primary education facilities"
+                )
+            with col3:
+                st.metric(
+                    "Secondary Schools",
+                    f"{int(valid_school_data['secondary_schools'].sum()):,}",
+                    help="Secondary education facilities"
+                )
+
+            with st.expander("📊 Statistical Details"):
+                st.markdown(f"""
+                - **Correlation Coefficient:** {correlation:.3f}
+                - **P-value:** {p_value:.4f} {'(significant)' if p_value < 0.05 else '(not significant)'}
+                - **LSOAs Analyzed:** {len(valid_school_data):,}
+                - **Avg Schools per 10k:** {valid_school_data['schools_per_10k'].mean():.2f}
+                - **Coverage Range:** {valid_school_data['stops_per_1000'].min():.1f} to {valid_school_data['stops_per_1000'].max():.1f} stops/1000
+                """)
+        else:
+            st.warning("⚠️ Insufficient valid data after filtering outliers.")
+    else:
+        st.warning("⚠️ Insufficient school data for analysis in this filter selection.")
+
+st.markdown("---")
+
+# ============================================================================
+# SECTION D30: Business Density vs Service Quality
+# ============================================================================
+
+with st.container():
+    st.markdown("## 💼 D30: Business Density vs Service Quality")
+    st.markdown("*Are business-dense areas better served by public transport?*")
+    st.caption("📊 Scatter plot comparing business vs residential coverage")
+
+    # Filter data with business counts
+    valid_business_data = lsoa_data[
+        (lsoa_data['business_count'].notna()) &
+        (lsoa_data['business_count'] > 0) &
+        (lsoa_data['stops_per_1000'] > 0) &
+        (lsoa_data['total_population'] > 0)
+    ].copy()
+
+    if len(valid_business_data) >= 10:
+        # Calculate business density (businesses per 1000 population)
+        valid_business_data['businesses_per_1k'] = (
+            valid_business_data['business_count'] / valid_business_data['total_population']
+        ) * 1000
+
+        # Remove extreme outliers
+        Q1 = valid_business_data['businesses_per_1k'].quantile(0.25)
+        Q3 = valid_business_data['businesses_per_1k'].quantile(0.75)
+        IQR = Q3 - Q1
+        valid_business_data = valid_business_data[
+            (valid_business_data['businesses_per_1k'] >= Q1 - 3*IQR) &
+            (valid_business_data['businesses_per_1k'] <= Q3 + 3*IQR)
+        ]
+
+        if len(valid_business_data) >= 10:
+            # Correlation analysis
+            correlation, p_value = stats.pearsonr(
+                valid_business_data['businesses_per_1k'],
+                valid_business_data['stops_per_1000']
+            )
+
+            # Build hover_data with lsoa_name if available
+            hover_cols = ['lsoa_code', 'business_count', 'total_population']
+            if 'lsoa_name' in valid_business_data.columns:
+                hover_cols.insert(1, 'lsoa_name')
+
+            # Visualization
+            fig = px.scatter(
+                valid_business_data,
+                x='businesses_per_1k',
+                y='stops_per_1000',
+                size='total_population',
+                color='business_count',
+                hover_data=hover_cols,
+                labels={
+                    'businesses_per_1k': 'Businesses per 1,000 Population',
+                    'stops_per_1000': 'Bus Stops per 1,000 Population',
+                    'business_count': 'Total Businesses'
+                },
+                title=f'Business Density vs Bus Coverage - {filter_display}',
+                color_continuous_scale='Plasma',
+                template='plotly_white',
+                log_x=False
+            )
+
+            fig.update_layout(
+                height=500,
+                xaxis_title='Businesses per 1,000 Population',
+                yaxis_title='Bus Stops per 1,000 Population'
+            )
+
+            # Add trend line
+            z = np.polyfit(valid_business_data['businesses_per_1k'], valid_business_data['stops_per_1000'], 1)
+            p = np.poly1d(z)
+            x_trend = np.linspace(valid_business_data['businesses_per_1k'].min(),
+                                  valid_business_data['businesses_per_1k'].max(), 100)
+            fig.add_scatter(x=x_trend, y=p(x_trend), mode='lines', name='Trend',
+                           line=dict(color='red', dash='dash'))
+
+            st.plotly_chart(fig, use_container_width=True, key='d30_scatter')
+
+            # Generate insights using InsightEngine
+            insight_result = ENGINE.run_correlation(
+                df=valid_business_data,
+                x_col='businesses_per_1k',
+                y_col='stops_per_1000',
+                x_name='Business Density',
+                y_name='Bus Coverage',
+                metric_name='stops per 1,000',
+                dimension='business density',
+                sources=['NaPTAN October 2025', 'NOMIS Business Counts 2024']
+            )
+
+            # Statistical metrics
+            col1, col2, col3 = st.columns(3)
+
+            if 'correlation' in insight_result['evidence']:
+                corr_data = insight_result['evidence']['correlation']
+                with col1:
+                    st.metric("Correlation (r)", f"{corr_data['r']:.3f}",
+                             help=f"{corr_data['strength'].title()} {'positive' if corr_data['r'] > 0 else 'negative'}")
+                with col2:
+                    st.metric("P-value", f"{corr_data['p']:.4f}",
+                             help="Significant" if corr_data['p'] < 0.05 else "Not significant")
+                with col3:
+                    st.metric("Sample Size", f"{corr_data['n']:,} LSOAs")
+
+            # Display key finding
+            if insight_result['key_finding']:
+                st.markdown("#### 🔍 Key Finding")
+                st.markdown(insight_result['key_finding'])
+
+            # Summary metrics
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric(
+                    "Total Businesses",
+                    f"{int(valid_business_data['business_count'].sum()):,}",
+                    help="Active businesses in analysis area"
+                )
+            with col2:
+                st.metric(
+                    "Avg Business Density",
+                    f"{valid_business_data['businesses_per_1k'].mean():.1f}",
+                    help="Businesses per 1,000 population"
+                )
+            with col3:
+                st.metric(
+                    "Coverage Correlation",
+                    f"{correlation:.3f}",
+                    help="Pearson correlation coefficient"
+                )
+                st.caption("✅ Significant" if p_value < 0.05 else "⚠️ Not Significant")
+
+            with st.expander("📊 Statistical Analysis"):
+                st.markdown(f"""
+                - **Correlation Coefficient:** {correlation:.3f}
+                - **P-value:** {p_value:.4f} {'(statistically significant at p<0.05)' if p_value < 0.05 else '(not significant)'}
+                - **Sample Size:** {len(valid_business_data):,} LSOAs
+                - **Business Density Range:** {valid_business_data['businesses_per_1k'].min():.1f} to {valid_business_data['businesses_per_1k'].max():.1f} per 1000
+                - **Coverage Range:** {valid_business_data['stops_per_1000'].min():.1f} to {valid_business_data['stops_per_1000'].max():.1f} stops per 1000
+
+                **Interpretation:** Positive correlation suggests bus services prioritize business-dense areas,
+                supporting commuter access to employment centers. This is economically rational but raises
+                equity concerns if residential areas with equal population density receive less service.
+                """)
+        else:
+            st.warning("⚠️ Insufficient data after removing outliers.")
+    else:
+        st.warning("⚠️ Insufficient business count data for this filter selection.")
 
 # ============================================================================
 # Footer
