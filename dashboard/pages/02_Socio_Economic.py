@@ -353,7 +353,7 @@ st.markdown("---")
 # Force re-execution when filters change
 _d24_key = f"d24_{filter_mode}_{filter_value}"
 
-st.header("📉 D24: Deprivation and Bus Service Coverage")
+st.header("📉 Deprivation and Bus Service Coverage")
 st.markdown("*Is there a correlation between bus coverage and deprivation (IMD)?*")
 st.caption("📊 Scatter plot with regression line")
 
@@ -577,7 +577,7 @@ st.markdown("---")
 
 _d25_key = f"d25_{filter_mode}_{filter_value}"
 
-st.header("💼 D25: Employment Patterns and Bus Access")
+st.header("💼 Employment Patterns and Bus Access")
 st.markdown("*Do areas with higher unemployment have fewer bus services?*")
 st.caption("📊 Violin plot by unemployment quartiles")
 
@@ -712,7 +712,7 @@ st.markdown("---")
 st.markdown("---")
 _d26_key = f"d26_{filter_mode}_{filter_value}"
 
-st.header("👴 D26: Elderly Population and Bus Coverage")
+st.header("👴 Elderly Population and Bus Coverage")
 st.markdown("*How does bus coverage correlate with elderly population percentage?*")
 st.caption("📊 Hexbin density plot")
 
@@ -808,7 +808,7 @@ st.markdown("---")
 
 _d27_key = f"d27_{filter_mode}_{filter_value}"
 
-st.header("🚗 D27: Car Ownership and Bus Service Provision")
+st.header("🚗 Car Ownership and Bus Service Provision")
 st.markdown("*Do regions with higher car ownership have lower bus service provision?*")
 st.caption("📊 Bubble chart (car ownership vs coverage, size = population)")
 
@@ -911,7 +911,7 @@ st.markdown("---")
 
 _d31_key = f"d31_{filter_mode}_{filter_value}"
 
-st.header("📍 D31: Population Density vs Stop Density")
+st.header("📍 Population Density vs Stop Density")
 st.markdown("*What is the relationship between population density and bus stop density?*")
 st.caption("📊 Log-scale scatter plot with urban/rural classification")
 
@@ -1044,7 +1044,7 @@ st.markdown("---")
 # ============================================================================
 
 with st.container():
-    st.markdown("## 📚 D28: Coverage vs Educational Attainment")
+    st.markdown("## 📚 Coverage vs Educational Attainment")
     st.markdown("*Is there a relationship between bus coverage and educational attainment?*")
     st.caption("📊 Regional comparison bars with statistical significance")
 
@@ -1174,7 +1174,7 @@ st.markdown("---")
 # ============================================================================
 
 with st.container():
-    st.markdown("## 🏫 D29: Amenity Access - School Proximity")
+    st.markdown("## 🏫 Amenity Access - School Proximity")
     st.markdown("*How does bus frequency vary with the concentration of key amenities?*")
     st.caption("📊 Heatmap showing school proximity to bus stops")
 
@@ -1313,7 +1313,7 @@ st.markdown("---")
 # ============================================================================
 
 with st.container():
-    st.markdown("## 💼 D30: Business Density vs Service Quality")
+    st.markdown("## 💼 Business Density vs Service Quality")
     st.markdown("*Are business-dense areas better served by public transport?*")
     st.caption("📊 Scatter plot comparing business vs residential coverage")
 
