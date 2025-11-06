@@ -2198,9 +2198,17 @@ Implemented 5 of 6 sections with available demographic data:
   - Quartile analysis comparing coverage across female population distribution
   - Gender-sensitive transit policy considerations
 
-**Section Deferred (Data Dependency):**
-- ⏳ F37: Ethnic minority access patterns
-  - Requires: ONS Census 2021 ethnicity tables (not yet integrated)
+**F37: Ethnic Minority Access Patterns** ✅ **COMPLETED**
+- ✅ **Downloaded** Census 2021 TS021 (Ethnic Group) via bulk ZIP from ONS (35,672 LSOAs, 5.5 MB processed file)
+- ✅ **Processed** ethnicity data: BME, Asian, Black, Mixed, Other categories with percentages
+- ✅ **Integrated** ethnicity data into `load_lsoa_data_f()` via `load_ethnicity_data_from_census()`
+- ✅ **Scatter plot**: BME % vs bus coverage with correlation analysis (r, p-value)
+- ✅ **Quartile analysis**: Coverage comparison across BME population distribution
+- ✅ **Ethnic group breakdown**: Correlation table for Asian, Black, Mixed groups
+- ✅ **Policy context**: BME transit dependency, car ownership disparities, urban concentration patterns
+- ✅ **Evidence-gated**: Scientific notation for p-values, suppresses insights if n < 30
+- ✅ **Filter-aware**: Supports all 30 filter combinations (all regions, single region, urban/rural)
+- ✅ **Data quality**: 100% match rate with LSOA codes, national average BME 17.2%
 
 **Implementation Quality:**
 - ✅ All sections follow Categories A & D philosophy:

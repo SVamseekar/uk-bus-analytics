@@ -278,6 +278,40 @@ def load_gender_data_from_census():
 
 
 @st.cache_data(ttl=3600)
+def load_ethnicity_data_from_census():
+    """
+    Load ethnicity demographics from Census 2021 TS021 at LSOA level
+
+    Returns: DataFrame with lsoa_code and ethnic group percentages
+    """
+    try:
+        ethnicity_file = Path('data/raw/demographics/ethnicity_lsoa_processed.csv')
+        if not ethnicity_file.exists():
+            return pd.DataFrame()
+
+        ethnicity_df = pd.read_csv(ethnicity_file)
+
+        # Keep only required columns
+        cols_to_keep = [
+            'lsoa_code',
+            'total_population_ethnic',
+            'ethnic_white', 'ethnic_bme', 'ethnic_asian', 'ethnic_black', 'ethnic_mixed', 'ethnic_other',
+            'pct_white', 'pct_bme', 'pct_asian', 'pct_black', 'pct_mixed', 'pct_other'
+        ]
+
+        available_cols = [col for col in cols_to_keep if col in ethnicity_df.columns]
+        ethnicity_df = ethnicity_df[available_cols].copy()
+
+        # Mark that we have ethnicity data
+        ethnicity_df['has_ethnicity_data'] = True
+
+        return ethnicity_df
+
+    except Exception as e:
+        return pd.DataFrame()
+
+
+@st.cache_data(ttl=3600)
 def load_lsoa_data_f(filter_mode, filter_value):
     """
     Load LSOA-level data for equity analysis
@@ -391,6 +425,18 @@ def load_lsoa_data_f(filter_mode, filter_value):
         lsoa_agg['pct_male'] = 49.0
         lsoa_agg['has_gender_data'] = False
 
+    # JOIN ethnicity data from Census 2021
+    ethnicity_data = load_ethnicity_data_from_census()
+
+    if not ethnicity_data.empty:
+        lsoa_agg = lsoa_agg.merge(ethnicity_data, on='lsoa_code', how='left')
+        lsoa_agg['has_ethnicity_data'] = lsoa_agg['pct_bme'].notna()
+    else:
+        # Fallback if ethnicity data file not found
+        for col in ['pct_bme', 'pct_white', 'pct_asian', 'pct_black', 'pct_mixed', 'pct_other']:
+            lsoa_agg[col] = np.nan
+        lsoa_agg['has_ethnicity_data'] = False
+
     # Filter out invalid data
     lsoa_agg = lsoa_agg[
         (lsoa_agg['total_population'] > 0) &
@@ -410,6 +456,7 @@ def load_lsoa_data_f(filter_mode, filter_value):
 with st.spinner('Loading equity analysis data... (10-15 seconds on first load, instant after)'):
     _ = load_lsoa_data_f(filter_mode, filter_value)
     _ = load_gender_data_from_census()
+    _ = load_ethnicity_data_from_census()
 
 # ============================================================================
 # SECTION F35: Service Distribution Across Deprivation Deciles
@@ -672,6 +719,259 @@ else:
 
 Elderly passengers require: accessibility features (low-floor buses, shelters), shorter walking distances,
 more frequent service, and better connectivity to healthcare facilities.
+            """)
+
+st.markdown("---")
+
+# ============================================================================
+# SECTION F37: Ethnic Minority Access Patterns
+# ============================================================================
+
+st.header("🌍 Ethnic Minority Access Patterns")
+st.markdown(f"*How does bus service provision relate to ethnic diversity? (Analyzing: {filter_display})*")
+
+ethnicity_data_f37 = load_lsoa_data_f(filter_mode, filter_value)
+
+if ethnicity_data_f37.empty:
+    st.warning("⚠️ No data available for this selection.")
+else:
+    # Check if we have actual ethnicity data
+    has_ethnicity = ethnicity_data_f37['has_ethnicity_data'].any() if 'has_ethnicity_data' in ethnicity_data_f37.columns else False
+
+    if not has_ethnicity:
+        st.warning("⚠️ Ethnicity data from Census 2021 not found in processed files.")
+    else:
+        st.info("""
+        **Data Source:** Census 2021 TS021 (Ethnic Group) at LSOA level.
+        BME (Black and Minority Ethnic) includes all ethnic groups except White categories.
+        """)
+
+        # Clean data for analysis
+        ethnicity_clean = ethnicity_data_f37[
+            (ethnicity_data_f37['pct_bme'].notna()) &
+            (ethnicity_data_f37['pct_bme'] >= 0) &
+            (ethnicity_data_f37['pct_bme'] <= 100) &
+            (ethnicity_data_f37['stops_per_1000'].notna())
+        ].copy()
+
+        if len(ethnicity_clean) < 30:
+            st.warning(f"⚠️ Insufficient data ({len(ethnicity_clean)} LSOAs). Need at least 30 for statistical analysis.")
+        else:
+            st.success(f"✅ Analyzing {len(ethnicity_clean):,} LSOAs with Census 2021 ethnicity data")
+
+            # Calculate national/filtered average
+            national_avg_ethnicity = (ethnicity_clean['num_stops'].sum() / ethnicity_clean['total_population'].sum()) * 1000
+
+            # Correlation analysis
+            corr_bme, p_value_bme = stats.pearsonr(ethnicity_clean['pct_bme'], ethnicity_clean['stops_per_1000'])
+
+            # Scatter plot: BME % vs Coverage
+            fig_ethnicity = px.scatter(
+                ethnicity_clean,
+                x='pct_bme',
+                y='stops_per_1000',
+                color='region_name' if filter_mode in ['all_regions', 'all_urban', 'all_rural'] else None,
+                size='total_population',
+                hover_data={
+                    'lsoa_name': True,
+                    'pct_bme': ':.1f',
+                    'pct_asian': ':.1f',
+                    'pct_black': ':.1f',
+                    'pct_mixed': ':.1f',
+                    'stops_per_1000': ':.2f'
+                },
+                title="Bus Coverage vs BME Population %",
+                labels={
+                    'pct_bme': '% BME Population (Black and Minority Ethnic)',
+                    'stops_per_1000': 'Bus Stops per 1,000 Population',
+                    'region_name': 'Region'
+                },
+                height=600
+            )
+
+            # Add trendline
+            z = np.polyfit(ethnicity_clean['pct_bme'], ethnicity_clean['stops_per_1000'], 1)
+            p = np.poly1d(z)
+            x_line = np.linspace(ethnicity_clean['pct_bme'].min(), ethnicity_clean['pct_bme'].max(), 100)
+
+            fig_ethnicity.add_trace(go.Scatter(
+                x=x_line,
+                y=p(x_line),
+                mode='lines',
+                name=f'Trend (r={corr_bme:.3f})',
+                line=dict(color='red', dash='dash', width=2),
+                hovertemplate='<b>Trend Line</b><br>r=%{fullData.name}<extra></extra>'
+            ))
+
+            # Add national average line
+            fig_ethnicity.add_hline(
+                y=national_avg_ethnicity,
+                line_dash="dot",
+                line_color="gray",
+                annotation_text=f"Average: {national_avg_ethnicity:.2f}",
+                annotation_position="right"
+            )
+
+            st.plotly_chart(fig_ethnicity, use_container_width=True)
+
+            # Statistical Summary
+            col1, col2, col3 = st.columns(3)
+
+            with col1:
+                st.metric("Correlation (r)", f"{corr_bme:.3f}")
+
+            with col2:
+                # Use scientific notation for very small p-values
+                if p_value_bme < 0.0001:
+                    st.metric("P-value", f"{p_value_bme:.2e}")
+                else:
+                    st.metric("P-value", f"{p_value_bme:.4f}")
+
+            with col3:
+                sig_status = "Significant" if p_value_bme < 0.05 else "Not Significant"
+                st.metric("Statistical Significance", sig_status)
+
+            # Quartile analysis: Compare LSOAs with high BME % vs low BME %
+            ethnicity_clean['bme_quartile'] = pd.qcut(ethnicity_clean['pct_bme'], q=4, labels=['Q1 (Lowest BME)', 'Q2', 'Q3', 'Q4 (Highest BME)'], duplicates='drop')
+
+            quartile_summary = ethnicity_clean.groupby('bme_quartile').apply(
+                lambda x: pd.Series({
+                    'avg_coverage': (x['num_stops'].sum() / x['total_population'].sum()) * 1000,
+                    'avg_bme_pct': x['pct_bme'].mean(),
+                    'num_lsoas': len(x),
+                    'population': x['total_population'].sum()
+                })
+            ).reset_index()
+
+            st.markdown("#### Coverage by BME Population Quartile")
+
+            fig_quartile = px.bar(
+                quartile_summary,
+                x='bme_quartile',
+                y='avg_coverage',
+                text='avg_coverage',
+                title="Average Bus Coverage by BME Population Quartile",
+                labels={
+                    'bme_quartile': 'BME Population Quartile',
+                    'avg_coverage': 'Bus Stops per 1,000 Population'
+                },
+                color='avg_coverage',
+                color_continuous_scale='RdYlGn',
+                height=400
+            )
+
+            fig_quartile.update_traces(texttemplate='%{text:.2f}', textposition='outside')
+            fig_quartile.update_layout(showlegend=False)
+
+            st.plotly_chart(fig_quartile, use_container_width=True)
+
+            # Display quartile table
+            quartile_display = quartile_summary.copy()
+            quartile_display['avg_coverage'] = quartile_display['avg_coverage'].round(2)
+            quartile_display['avg_bme_pct'] = quartile_display['avg_bme_pct'].round(2)
+            quartile_display.columns = ['Quartile', 'Avg Coverage', 'Avg BME %', 'LSOAs', 'Population']
+
+            st.dataframe(quartile_display, use_container_width=True, hide_index=True)
+
+            # Interpretation
+            st.markdown("#### Analysis")
+
+            if p_value_bme < 0.05:
+                if abs(corr_bme) > 0.3:
+                    strength = "strong" if abs(corr_bme) > 0.5 else "moderate"
+                    direction = "positive" if corr_bme > 0 else "negative"
+
+                    # Format p-value
+                    p_text_bme = f"{p_value_bme:.2e}" if p_value_bme < 0.0001 else f"{p_value_bme:.4f}"
+
+                    q1_cov = quartile_summary.iloc[0]['avg_coverage']
+                    q4_cov = quartile_summary.iloc[-1]['avg_coverage']
+                    q1_bme = quartile_summary.iloc[0]['avg_bme_pct']
+                    q4_bme = quartile_summary.iloc[-1]['avg_bme_pct']
+
+                    st.markdown(f"""
+**Statistically significant {strength} {direction} correlation** (r={corr_bme:.3f}, p={p_text_bme})
+between BME population % and bus coverage.
+
+{'Areas with higher BME populations have **better** bus coverage.' if corr_bme > 0 else 'Areas with higher BME populations have **lower** bus coverage.'}
+
+**Quartile Analysis:**
+- Q1 (Lowest BME {q1_bme:.1f}%): {q1_cov:.2f} stops/1000
+- Q4 (Highest BME {q4_bme:.1f}%): {q4_cov:.2f} stops/1000
+- **Disparity: {abs(q4_cov - q1_cov):.2f} stops/1000** difference
+
+{"This is a **positive equity finding** - areas with higher BME populations (often more transit-dependent due to lower car ownership) receive better service." if corr_bme > 0 else "This is an **equity concern** - areas with higher BME populations (often more transit-dependent) receive lower service."}
+                    """)
+                else:
+                    p_text_bme = f"{p_value_bme:.2e}" if p_value_bme < 0.0001 else f"{p_value_bme:.4f}"
+                    st.markdown(f"""
+**Weak correlation** (r={corr_bme:.3f}, p={p_text_bme}) - ethnic diversity shows little
+relationship with bus coverage patterns.
+
+Coverage appears to be driven by other factors (urban density, historical network planning, deprivation) rather than
+ethnic composition of the population.
+                    """)
+            else:
+                p_text_bme = f"{p_value_bme:.2e}" if p_value_bme < 0.0001 else f"{p_value_bme:.4f}"
+                st.markdown(f"""
+**No statistically significant relationship** (r={corr_bme:.3f}, p={p_text_bme}) between
+BME population % and bus coverage.
+
+This suggests bus network planning does not systematically account for (or discriminate based on)
+ethnic demographics at the LSOA level.
+                """)
+
+            # Ethnic group breakdown
+            st.markdown("#### Coverage by Specific Ethnic Groups")
+
+            ethnic_groups = ['asian', 'black', 'mixed']
+            available_groups = [g for g in ethnic_groups if f'pct_{g}' in ethnicity_clean.columns]
+
+            if available_groups:
+                corr_data = []
+                for group in available_groups:
+                    col_name = f'pct_{group}'
+                    valid_data = ethnicity_clean[[col_name, 'stops_per_1000']].dropna()
+                    if len(valid_data) >= 30:
+                        corr, p_val = stats.pearsonr(valid_data[col_name], valid_data['stops_per_1000'])
+                        corr_data.append({
+                            'Ethnic Group': group.capitalize(),
+                            'Correlation (r)': f"{corr:.3f}",
+                            'P-value': f"{p_val:.4f}" if p_val >= 0.0001 else f"{p_val:.2e}",
+                            'Significant': '✓' if p_val < 0.05 else '✗',
+                            'Direction': 'Positive' if corr > 0 else 'Negative'
+                        })
+
+                if corr_data:
+                    corr_df = pd.DataFrame(corr_data)
+                    st.dataframe(corr_df, use_container_width=True, hide_index=True)
+
+            # Policy context
+            st.markdown("""
+---
+### Ethnic Minority Transit Dependency
+
+**Why Transit Access Matters for BME Communities:**
+- **Lower car ownership**: BME households have 15-30% lower car ownership rates than White households (Census 2021)
+- **Urban concentration**: 86% of BME population lives in urban areas (vs 73% White), where transit is primary mobility mode
+- **Employment patterns**: Higher reliance on shift work and multiple job locations requiring flexible transit access
+- **Income disparities**: Median income 10-20% lower, increasing transit dependency for cost reasons
+- **Cultural/community connectivity**: Access to places of worship, cultural centers, and ethnic retail requires transit
+
+**Geographic Patterns:**
+- **London**: Highest ethnic diversity (60% BME in some boroughs), extensive transit coverage
+- **Urban cores**: Birmingham, Manchester, Leicester, Bradford - high BME % correlates with urban transit density
+- **Pockets of underservice**: Some outer urban areas with growing BME populations lack adequate service
+
+**Service Design Implications:**
+- **Route connectivity** to employment centers, healthcare, and community facilities
+- **Frequency during off-peak hours** for shift workers
+- **Information accessibility** (multilingual signage, real-time info)
+- **Affordability** (fares, concessionary schemes)
+
+**Note:** This analysis examines ethnic demographics and coverage patterns. True equity analysis requires
+data on journey purposes, barriers to access, service quality perceptions, and community needs - which
+require targeted surveys and qualitative research with BME communities.
             """)
 
 st.markdown("---")
