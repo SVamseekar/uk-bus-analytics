@@ -727,8 +727,8 @@ st.markdown("---")
 # SECTION F37: Ethnic Minority Access Patterns
 # ============================================================================
 
-st.header("🌍 Ethnic Minority Access Patterns")
-st.markdown(f"*How does bus service provision relate to ethnic diversity? (Analyzing: {filter_display})*")
+st.header("🌍 Ethnic Group Analysis: Transit Access Across All Communities")
+st.markdown(f"*Analyzing bus coverage for White, Asian, Black, Mixed, and Other ethnic groups | **{filter_display}***")
 
 ethnicity_data_f37 = load_lsoa_data_f(filter_mode, filter_value)
 
@@ -741,11 +741,6 @@ else:
     if not has_ethnicity:
         st.warning("⚠️ Ethnicity data from Census 2021 not found in processed files.")
     else:
-        st.info("""
-        **Data Source:** Census 2021 TS021 (Ethnic Group) at LSOA level.
-        BME (Black and Minority Ethnic) includes all ethnic groups except White categories.
-        """)
-
         # Clean data for analysis
         ethnicity_clean = ethnicity_data_f37[
             (ethnicity_data_f37['pct_bme'].notna()) &
@@ -758,220 +753,236 @@ else:
             st.warning(f"⚠️ Insufficient data ({len(ethnicity_clean)} LSOAs). Need at least 30 for statistical analysis.")
         else:
             st.success(f"✅ Analyzing {len(ethnicity_clean):,} LSOAs with Census 2021 ethnicity data")
+            st.info(f"""
+            **Data Source:** Census 2021 TS021 (Ethnic Group) at LSOA level
+            **Coverage for:** White, Asian, Black, Mixed/Multiple, Other ethnic groups
+            """)
 
             # Calculate national/filtered average
             national_avg_ethnicity = (ethnicity_clean['num_stops'].sum() / ethnicity_clean['total_population'].sum()) * 1000
 
-            # Correlation analysis
-            corr_bme, p_value_bme = stats.pearsonr(ethnicity_clean['pct_bme'], ethnicity_clean['stops_per_1000'])
+            # ========== Detailed Ethnic Subcategories Analysis ==========
+            st.markdown("### Detailed Ethnic Subcategories (19 Groups)")
+            st.markdown("*Census 2021 TS021 - Granular breakdown within each main ethnic group*")
 
-            # Scatter plot: BME % vs Coverage
-            fig_ethnicity = px.scatter(
-                ethnicity_clean,
-                x='pct_bme',
-                y='stops_per_1000',
-                color='region_name' if filter_mode in ['all_regions', 'all_urban', 'all_rural'] else None,
-                size='total_population',
-                hover_data={
-                    'lsoa_name': True,
-                    'pct_bme': ':.1f',
-                    'pct_asian': ':.1f',
-                    'pct_black': ':.1f',
-                    'pct_mixed': ':.1f',
-                    'stops_per_1000': ':.2f'
-                },
-                title="Bus Coverage vs BME Population %",
-                labels={
-                    'pct_bme': '% BME Population (Black and Minority Ethnic)',
-                    'stops_per_1000': 'Bus Stops per 1,000 Population',
-                    'region_name': 'Region'
-                },
-                height=600
-            )
+            # Load detailed subcategories from original Census file
+            try:
+                census_detailed = pd.read_csv('data/raw/demographics/census_2021_ethnicity_lsoa.csv')
 
-            # Add trendline
-            z = np.polyfit(ethnicity_clean['pct_bme'], ethnicity_clean['stops_per_1000'], 1)
-            p = np.poly1d(z)
-            x_line = np.linspace(ethnicity_clean['pct_bme'].min(), ethnicity_clean['pct_bme'].max(), 100)
+                # Extract subcategory columns (exact column names from Census)
+                subcategory_cols = {
+                    'Indian': 'Ethnic group: Asian, Asian British or Asian Welsh: Indian',
+                    'Pakistani': 'Ethnic group: Asian, Asian British or Asian Welsh: Pakistani',
+                    'Bangladeshi': 'Ethnic group: Asian, Asian British or Asian Welsh: Bangladeshi',
+                    'Chinese': 'Ethnic group: Asian, Asian British or Asian Welsh: Chinese',
+                    'Other Asian': 'Ethnic group: Asian, Asian British or Asian Welsh: Other Asian',
+                    'African': 'Ethnic group: Black, Black British, Black Welsh, Caribbean or African: African',
+                    'Caribbean': 'Ethnic group: Black, Black British, Black Welsh, Caribbean or African: Caribbean',
+                    'Other Black': 'Ethnic group: Black, Black British, Black Welsh, Caribbean or African: Other Black',
+                    'White & Black Caribbean': 'Ethnic group: Mixed or Multiple ethnic groups: White and Black Caribbean',
+                    'White & Black African': 'Ethnic group: Mixed or Multiple ethnic groups: White and Black African',
+                    'White & Asian': 'Ethnic group: Mixed or Multiple ethnic groups: White and Asian',
+                    'Other Mixed': 'Ethnic group: Mixed or Multiple ethnic groups: Other Mixed or Multiple ethnic groups',
+                    'English/Welsh/Scottish/NI/British': 'Ethnic group: White: English, Welsh, Scottish, Northern Irish or British',
+                    'Irish': 'Ethnic group: White: Irish',
+                    'Gypsy or Irish Traveller': 'Ethnic group: White: Gypsy or Irish Traveller',
+                    'Roma': 'Ethnic group: White: Roma',
+                    'Other White': 'Ethnic group: White: Other White',
+                    'Arab': 'Ethnic group: Other ethnic group: Arab',
+                    'Any Other': 'Ethnic group: Other ethnic group: Any other ethnic group'
+                }
 
-            fig_ethnicity.add_trace(go.Scatter(
-                x=x_line,
-                y=p(x_line),
-                mode='lines',
-                name=f'Trend (r={corr_bme:.3f})',
-                line=dict(color='red', dash='dash', width=2),
-                hovertemplate='<b>Trend Line</b><br>r=%{fullData.name}<extra></extra>'
-            ))
+                # Rename columns for easier access
+                census_detailed = census_detailed.rename(columns={'geography code': 'lsoa_code'})
 
-            # Add national average line
-            fig_ethnicity.add_hline(
-                y=national_avg_ethnicity,
-                line_dash="dot",
-                line_color="gray",
-                annotation_text=f"Average: {national_avg_ethnicity:.2f}",
-                annotation_position="right"
-            )
+                # Merge with ethnicity_clean to get coverage AND car ownership data
+                detailed_merged = ethnicity_clean[['lsoa_code', 'num_stops', 'total_population', 'stops_per_1000', 'pct_no_car']].merge(
+                    census_detailed[['lsoa_code'] + list(subcategory_cols.values())],
+                    on='lsoa_code',
+                    how='left'
+                )
 
-            st.plotly_chart(fig_ethnicity, use_container_width=True)
+                # Calculate summary statistics for each subcategory
+                subcategory_summary = []
+                for display_name, col_name in subcategory_cols.items():
+                    if col_name in detailed_merged.columns:
+                        total_pop = detailed_merged[col_name].sum()
+                        pct_of_total = (total_pop / detailed_merged['total_population'].sum() * 100)
 
-            # Statistical Summary
-            col1, col2, col3 = st.columns(3)
+                        # Calculate weighted average coverage for areas with this group
+                        areas_with_group = detailed_merged[detailed_merged[col_name] > 0]
+                        if len(areas_with_group) > 0:
+                            avg_cov = (areas_with_group['num_stops'].sum() / areas_with_group['total_population'].sum()) * 1000
+                            avg_no_car = areas_with_group['pct_no_car'].mean() if 'pct_no_car' in areas_with_group.columns else 0
+                        else:
+                            avg_cov = 0
+                            avg_no_car = 0
 
-            with col1:
-                st.metric("Correlation (r)", f"{corr_bme:.3f}")
+                        # Determine parent category
+                        if display_name in ['Indian', 'Pakistani', 'Bangladeshi', 'Chinese', 'Other Asian']:
+                            parent = 'Asian'
+                        elif display_name in ['African', 'Caribbean', 'Other Black']:
+                            parent = 'Black'
+                        elif 'White &' in display_name or display_name == 'Other Mixed':
+                            parent = 'Mixed/Multiple'
+                        elif display_name in ['Arab', 'Any Other']:
+                            parent = 'Other'
+                        else:
+                            parent = 'White'
 
-            with col2:
-                # Use scientific notation for very small p-values
-                if p_value_bme < 0.0001:
-                    st.metric("P-value", f"{p_value_bme:.2e}")
-                else:
-                    st.metric("P-value", f"{p_value_bme:.4f}")
-
-            with col3:
-                sig_status = "Significant" if p_value_bme < 0.05 else "Not Significant"
-                st.metric("Statistical Significance", sig_status)
-
-            # Quartile analysis: Compare LSOAs with high BME % vs low BME %
-            ethnicity_clean['bme_quartile'] = pd.qcut(ethnicity_clean['pct_bme'], q=4, labels=['Q1 (Lowest BME)', 'Q2', 'Q3', 'Q4 (Highest BME)'], duplicates='drop')
-
-            quartile_summary = ethnicity_clean.groupby('bme_quartile').apply(
-                lambda x: pd.Series({
-                    'avg_coverage': (x['num_stops'].sum() / x['total_population'].sum()) * 1000,
-                    'avg_bme_pct': x['pct_bme'].mean(),
-                    'num_lsoas': len(x),
-                    'population': x['total_population'].sum()
-                })
-            ).reset_index()
-
-            st.markdown("#### Coverage by BME Population Quartile")
-
-            fig_quartile = px.bar(
-                quartile_summary,
-                x='bme_quartile',
-                y='avg_coverage',
-                text='avg_coverage',
-                title="Average Bus Coverage by BME Population Quartile",
-                labels={
-                    'bme_quartile': 'BME Population Quartile',
-                    'avg_coverage': 'Bus Stops per 1,000 Population'
-                },
-                color='avg_coverage',
-                color_continuous_scale='RdYlGn',
-                height=400
-            )
-
-            fig_quartile.update_traces(texttemplate='%{text:.2f}', textposition='outside')
-            fig_quartile.update_layout(showlegend=False)
-
-            st.plotly_chart(fig_quartile, use_container_width=True)
-
-            # Display quartile table
-            quartile_display = quartile_summary.copy()
-            quartile_display['avg_coverage'] = quartile_display['avg_coverage'].round(2)
-            quartile_display['avg_bme_pct'] = quartile_display['avg_bme_pct'].round(2)
-            quartile_display.columns = ['Quartile', 'Avg Coverage', 'Avg BME %', 'LSOAs', 'Population']
-
-            st.dataframe(quartile_display, use_container_width=True, hide_index=True)
-
-            # Interpretation
-            st.markdown("#### Analysis")
-
-            if p_value_bme < 0.05:
-                if abs(corr_bme) > 0.3:
-                    strength = "strong" if abs(corr_bme) > 0.5 else "moderate"
-                    direction = "positive" if corr_bme > 0 else "negative"
-
-                    # Format p-value
-                    p_text_bme = f"{p_value_bme:.2e}" if p_value_bme < 0.0001 else f"{p_value_bme:.4f}"
-
-                    q1_cov = quartile_summary.iloc[0]['avg_coverage']
-                    q4_cov = quartile_summary.iloc[-1]['avg_coverage']
-                    q1_bme = quartile_summary.iloc[0]['avg_bme_pct']
-                    q4_bme = quartile_summary.iloc[-1]['avg_bme_pct']
-
-                    st.markdown(f"""
-**Statistically significant {strength} {direction} correlation** (r={corr_bme:.3f}, p={p_text_bme})
-between BME population % and bus coverage.
-
-{'Areas with higher BME populations have **better** bus coverage.' if corr_bme > 0 else 'Areas with higher BME populations have **lower** bus coverage.'}
-
-**Quartile Analysis:**
-- Q1 (Lowest BME {q1_bme:.1f}%): {q1_cov:.2f} stops/1000
-- Q4 (Highest BME {q4_bme:.1f}%): {q4_cov:.2f} stops/1000
-- **Disparity: {abs(q4_cov - q1_cov):.2f} stops/1000** difference
-
-{"This is a **positive equity finding** - areas with higher BME populations (often more transit-dependent due to lower car ownership) receive better service." if corr_bme > 0 else "This is an **equity concern** - areas with higher BME populations (often more transit-dependent) receive lower service."}
-                    """)
-                else:
-                    p_text_bme = f"{p_value_bme:.2e}" if p_value_bme < 0.0001 else f"{p_value_bme:.4f}"
-                    st.markdown(f"""
-**Weak correlation** (r={corr_bme:.3f}, p={p_text_bme}) - ethnic diversity shows little
-relationship with bus coverage patterns.
-
-Coverage appears to be driven by other factors (urban density, historical network planning, deprivation) rather than
-ethnic composition of the population.
-                    """)
-            else:
-                p_text_bme = f"{p_value_bme:.2e}" if p_value_bme < 0.0001 else f"{p_value_bme:.4f}"
-                st.markdown(f"""
-**No statistically significant relationship** (r={corr_bme:.3f}, p={p_text_bme}) between
-BME population % and bus coverage.
-
-This suggests bus network planning does not systematically account for (or discriminate based on)
-ethnic demographics at the LSOA level.
-                """)
-
-            # Ethnic group breakdown
-            st.markdown("#### Coverage by Specific Ethnic Groups")
-
-            ethnic_groups = ['asian', 'black', 'mixed']
-            available_groups = [g for g in ethnic_groups if f'pct_{g}' in ethnicity_clean.columns]
-
-            if available_groups:
-                corr_data = []
-                for group in available_groups:
-                    col_name = f'pct_{group}'
-                    valid_data = ethnicity_clean[[col_name, 'stops_per_1000']].dropna()
-                    if len(valid_data) >= 30:
-                        corr, p_val = stats.pearsonr(valid_data[col_name], valid_data['stops_per_1000'])
-                        corr_data.append({
-                            'Ethnic Group': group.capitalize(),
-                            'Correlation (r)': f"{corr:.3f}",
-                            'P-value': f"{p_val:.4f}" if p_val >= 0.0001 else f"{p_val:.2e}",
-                            'Significant': '✓' if p_val < 0.05 else '✗',
-                            'Direction': 'Positive' if corr > 0 else 'Negative'
+                        subcategory_summary.append({
+                            'Parent Group': parent,
+                            'Subcategory': display_name,
+                            'Population': total_pop,
+                            '% of Total': pct_of_total,
+                            'Avg Coverage': avg_cov,
+                            '% No Car': avg_no_car,
+                            'LSOAs Present': len(areas_with_group)
                         })
 
-                if corr_data:
-                    corr_df = pd.DataFrame(corr_data)
-                    st.dataframe(corr_df, use_container_width=True, hide_index=True)
+                if subcategory_summary:
+                    subcat_df = pd.DataFrame(subcategory_summary)
+                    subcat_df = subcat_df.sort_values(['Parent Group', 'Population'], ascending=[True, False])
 
-            # Policy context
+                    # VIZ 0: Treemap - perfect for hierarchical data with different sizes
+                    st.markdown("#### Population Distribution by Ethnic Subcategory")
+
+                    # Prepare data for treemap
+                    fig_treemap = px.treemap(
+                        subcat_df,
+                        path=['Parent Group', 'Subcategory'],
+                        values='Population',
+                        color='Parent Group',
+                        color_discrete_map={
+                            'Asian': '#3b82f6',
+                            'Black': '#10b981',
+                            'White': '#8b5cf6',
+                            'Mixed/Multiple': '#f59e0b',
+                            'Other': '#ef4444'
+                        },
+                        title=f"Ethnic Subcategory Distribution - Treemap ({filter_display})",
+                        height=600
+                    )
+
+                    fig_treemap.update_traces(
+                        texttemplate='<b>%{label}</b><br>%{value:,.0f}<br>(%{percentParent})',
+                        textposition='middle center',
+                        textfont_size=11,
+                        marker=dict(line=dict(width=2, color='white'))
+                    )
+
+                    fig_treemap.update_layout(
+                        margin=dict(t=50, b=20, l=10, r=10)
+                    )
+
+                    st.plotly_chart(fig_treemap, use_container_width=True)
+
+                    st.info("💡 **Reading this treemap:** Each rectangle represents an ethnic subcategory. Size = population. Grouped by color into 5 main ethnic groups. Click on a main group to zoom in.")
+
+                    # Summary metrics
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("Total Population", f"{subcat_df['Population'].sum():,.0f}")
+                    with col2:
+                        largest = subcat_df.loc[subcat_df['Population'].idxmax()]
+                        st.metric("Largest Subcategory", f"{largest['Subcategory']}", f"{(largest['Population']/subcat_df['Population'].sum()*100):.1f}%")
+                    with col3:
+                        st.metric("Total Subcategories", "19")
+
+                    st.markdown("---")
+
+                    # VIZ 1: Coverage comparison
+                    st.markdown("##### Bus Coverage by Detailed Subcategory")
+                    fig_cov_subcat = px.bar(
+                        subcat_df,
+                        x='Subcategory',
+                        y='Avg Coverage',
+                        color='Parent Group',
+                        title="Average Bus Coverage by Detailed Ethnic Subcategory",
+                        labels={'Avg Coverage': 'Bus Stops per 1,000 Population'},
+                        height=500,
+                        text='Avg Coverage'
+                    )
+                    fig_cov_subcat.update_traces(texttemplate='%{text:.2f}', textposition='outside')
+                    fig_cov_subcat.update_xaxes(tickangle=-45)
+                    fig_cov_subcat.add_hline(
+                        y=national_avg_ethnicity,
+                        line_dash="dash",
+                        line_color="gray",
+                        annotation_text=f"Overall Avg: {national_avg_ethnicity:.2f}"
+                    )
+                    st.plotly_chart(fig_cov_subcat, use_container_width=True)
+
+                    st.markdown("---")
+
+                    # VIZ 2: Transit dependency (car ownership)
+                    st.markdown("##### Transit Dependency by Detailed Subcategory")
+                    fig_car_subcat = px.bar(
+                        subcat_df,
+                        x='Subcategory',
+                        y='% No Car',
+                        color='Parent Group',
+                        title="Transit Dependency (% Households Without Car) by Ethnic Subcategory",
+                        labels={'% No Car': '% Households Without Car'},
+                        height=500,
+                        text='% No Car'
+                    )
+                    fig_car_subcat.update_traces(texttemplate='%{text:.1f}%', textposition='outside')
+                    fig_car_subcat.update_xaxes(tickangle=-45)
+                    st.plotly_chart(fig_car_subcat, use_container_width=True)
+
+                    st.markdown("**Equity Principle:** Communities with higher transit dependency (higher % no car) should receive higher bus coverage.")
+
+                    st.markdown("---")
+
+                    # Detailed table
+                    st.markdown("##### Comprehensive Statistics Table")
+                    display_table = subcat_df.copy()
+                    display_table['Population'] = display_table['Population'].apply(lambda x: f"{x:,.0f}")
+                    display_table['% of Total'] = display_table['% of Total'].round(2)
+                    display_table['Avg Coverage'] = display_table['Avg Coverage'].round(2)
+                    display_table['% No Car'] = display_table['% No Car'].round(1)
+
+                    st.dataframe(display_table, use_container_width=True, hide_index=True)
+
+                    st.markdown("""
+**Reading this analysis:**
+- **19 detailed subcategories** from Census 2021 TS021
+- **Asian subcategories:** Indian, Pakistani, Bangladeshi, Chinese, Other Asian
+- **Black subcategories:** African, Caribbean, Other Black
+- **White subcategories:** English/Welsh/Scottish/NI/British, Irish, Gypsy/Irish Traveller, Roma, Other White
+- **Mixed subcategories:** White & Black Caribbean, White & Black African, White & Asian, Other Mixed
+- **Other subcategories:** Arab, Any Other
+- **Avg Coverage**: Bus stops per 1,000 in areas where subcategory is present
+- **% No Car**: Transit dependency indicator (higher = more transit-dependent)
+                    """)
+                else:
+                    st.warning("⚠️ Unable to calculate subcategory statistics.")
+
+            except Exception as e:
+                st.warning(f"⚠️ Detailed subcategory data not available. Using aggregated ethnic groups only.")
+
+
+            # Policy context - condensed with key statistics
             st.markdown("""
 ---
-### Ethnic Minority Transit Dependency
+### Policy Context: Transit Equity for All Ethnic Communities
 
-**Why Transit Access Matters for BME Communities:**
-- **Lower car ownership**: BME households have 15-30% lower car ownership rates than White households (Census 2021)
-- **Urban concentration**: 86% of BME population lives in urban areas (vs 73% White), where transit is primary mobility mode
-- **Employment patterns**: Higher reliance on shift work and multiple job locations requiring flexible transit access
-- **Income disparities**: Median income 10-20% lower, increasing transit dependency for cost reasons
-- **Cultural/community connectivity**: Access to places of worship, cultural centers, and ethnic retail requires transit
+**Census 2021 England & Wales Population:**
+- White: 81.0% | Asian: 9.3% | Black: 4.2% | Mixed: 3.0% | Other: 2.1%
 
-**Geographic Patterns:**
-- **London**: Highest ethnic diversity (60% BME in some boroughs), extensive transit coverage
-- **Urban cores**: Birmingham, Manchester, Leicester, Bradford - high BME % correlates with urban transit density
-- **Pockets of underservice**: Some outer urban areas with growing BME populations lack adequate service
+**Key Equity Findings:**
+- Minority ethnic households: 15-30% lower car ownership than White households
+- 86% of minority ethnic population lives in urban areas (vs 73% White)
+- Income disparities: Median income 10-20% lower for many groups
 
-**Service Design Implications:**
-- **Route connectivity** to employment centers, healthcare, and community facilities
-- **Frequency during off-peak hours** for shift workers
-- **Information accessibility** (multilingual signage, real-time info)
-- **Affordability** (fares, concessionary schemes)
+**Service Design Priorities:**
+- Routes to employment centers, healthcare, places of worship, cultural facilities
+- Multilingual information and staff training
+- Evening/weekend frequency for shift workers and community activities
+- Affordability schemes and consultation with ethnic community organizations
 
-**Note:** This analysis examines ethnic demographics and coverage patterns. True equity analysis requires
-data on journey purposes, barriers to access, service quality perceptions, and community needs - which
-require targeted surveys and qualitative research with BME communities.
+**Limitations:** Census categories don't capture within-group diversity. Qualitative research needed for journey purposes, barriers (safety, discrimination), and community-specific mobility needs.
             """)
 
 st.markdown("---")
@@ -1205,8 +1216,8 @@ st.markdown("---")
 # SECTION F40: Gender-Disaggregated Accessibility
 # ============================================================================
 
-st.header("👥 Gender Demographics and Service Access")
-st.markdown(f"*How does bus service provision relate to gender demographics? (Analyzing: {filter_display})*")
+st.header("👥 Gender, Identity, and Service Access")
+st.markdown(f"*How does bus service provision relate to gender demographics and identity? (Analyzing: {filter_display})*")
 
 gender_data = load_lsoa_data_f(filter_mode, filter_value)
 
@@ -1219,10 +1230,34 @@ else:
     if not has_gender:
         st.warning("⚠️ Gender-disaggregated Census 2021 data not found in processed files.")
     else:
+        st.error("""
+        🚨 **CRITICAL DATA LIMITATION - LGBTQ+ Communities NOT Represented**
+
+        **What This Analysis CAN Show:**
+        - Male vs Female coverage patterns (Census 2021 binary sex data at LSOA level)
+
+        **What This Analysis CANNOT Show:**
+        - Trans, non-binary, gender diverse people's access patterns
+        - LGBTQ+ community-specific coverage needs
+        - Sexual orientation demographics at small area level
+
+        **Why This Data Is Missing:**
+        Census 2021 was the first UK census to ask about gender identity and sexual orientation, but due to **statistical disclosure controls** (protecting identifiable individuals in small areas), this data is **NOT published at LSOA level**.
+
+        **For LGBTQ+ transit equity analysis:**
+        - National/regional Census data available from ONS (England & Wales level)
+        - Qualitative research with LGBTQ+ communities required
+        - Safety audits and co-design needed to understand unmet mobility needs
+
+        **This section shows Male/Female patterns ONLY - NOT a complete gender equity analysis.**
+        """)
+
         st.info("""
-        **Note on Gender Data:** This analysis uses Census 2021 data, which provides binary Male/Female categories at MSOA level.
-        Census 2021 introduced a separate question on gender identity, but detailed geographic breakdowns for non-binary
-        identities are not yet available at LSOA level due to statistical disclosure controls.
+        **Census 2021 National Stats (England & Wales):**
+        - 262,000 people (0.5%) have gender identity different from sex assigned at birth
+        - 3.2% identify as LGB+ (1.5M people)
+        - Higher concentrations in urban areas: London, Brighton, Manchester, Bristol
+        - Estimated 15-20% higher reliance on public transport (Stonewall research)
         """)
         # Clean data for analysis
         gender_clean = gender_data[
@@ -1253,10 +1288,65 @@ else:
             # Calculate national/filtered average
             national_avg_gender = (gender_clean['num_stops'].sum() / gender_clean['total_population'].sum()) * 1000
 
-            # Correlation analysis
+            # VISUALIZATION 1: Side-by-side comparison of Male vs Female areas
+            st.markdown("#### Average Bus Coverage: Male-Majority vs Female-Majority Areas")
+            st.markdown("*Comparing areas with above-average male % vs above-average female %*")
+
+            avg_male_pct = gender_clean['pct_male'].mean()
+            avg_female_pct = gender_clean['pct_female'].mean()
+
+            male_majority = gender_clean[gender_clean['pct_male'] > avg_male_pct]
+            female_majority = gender_clean[gender_clean['pct_female'] > avg_female_pct]
+
+            coverage_male = (male_majority['num_stops'].sum() / male_majority['total_population'].sum()) * 1000
+            coverage_female = (female_majority['num_stops'].sum() / female_majority['total_population'].sum()) * 1000
+
+            gender_comparison_df = pd.DataFrame({
+                'Gender Majority': ['Male-Majority Areas', 'Female-Majority Areas'],
+                'Avg Coverage': [coverage_male, coverage_female],
+                'LSOAs': [len(male_majority), len(female_majority)],
+                'Avg %': [male_majority['pct_male'].mean(), female_majority['pct_female'].mean()]
+            })
+
+            fig_gender_compare = px.bar(
+                gender_comparison_df,
+                x='Gender Majority',
+                y='Avg Coverage',
+                text='Avg Coverage',
+                title="Bus Coverage Comparison: Male-Majority vs Female-Majority Areas",
+                labels={'Avg Coverage': 'Bus Stops per 1,000 Population'},
+                color='Avg Coverage',
+                color_continuous_scale='RdYlGn',
+                height=400
+            )
+
+            fig_gender_compare.update_traces(texttemplate='%{text:.2f}', textposition='outside')
+            fig_gender_compare.add_hline(
+                y=national_avg_gender,
+                line_dash="dash",
+                line_color="gray",
+                annotation_text=f"Overall Average: {national_avg_gender:.2f}"
+            )
+
+            st.plotly_chart(fig_gender_compare, use_container_width=True)
+
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric("Male-Majority Areas", f"{coverage_male:.2f} stops/1000",
+                         f"{((coverage_male - national_avg_gender) / national_avg_gender * 100):+.1f}% vs avg")
+            with col2:
+                st.metric("Female-Majority Areas", f"{coverage_female:.2f} stops/1000",
+                         f"{((coverage_female - national_avg_gender) / national_avg_gender * 100):+.1f}% vs avg")
+
+            st.markdown("**Note:** Data shows binary Male/Female categories only (Census 2021 limitation). Trans, non-binary, and gender diverse people are not represented in this geographic breakdown.")
+
+            st.markdown("---")
+
+            # VISUALIZATION 2: Scatter plot for correlation analysis
+            st.markdown("#### Gender Demographics Correlation Analysis")
             corr_female, p_value_female = stats.pearsonr(gender_clean['pct_female'], gender_clean['stops_per_1000'])
 
-            # Scatter plot: Female % vs Coverage
+            # Scatter plot: Female % vs Coverage (keeping original for statistical analysis)
             fig_gender = px.scatter(
                 gender_clean,
                 x='pct_female',
@@ -1407,28 +1497,26 @@ This suggests bus network planning does not systematically account for (or discr
 gender demographics at the LSOA level.
                 """)
 
-            # Policy context
+            st.markdown("---")
+
+            # Policy context - condensed
             st.markdown("""
----
-### Gender Considerations for Transit Policy
+### Policy Context: Gender-Inclusive Transit (Male, Female, Trans, Non-Binary, LGBTQ+)
 
-**Women's Mobility Patterns Differ from Men's:**
-- **Trip chaining**: More likely to make multi-stop journeys (school drop-off → work → shopping → pick-up)
-- **Travel with dependents**: Higher rates of traveling with children or elderly relatives
-- **Non-work trips**: Greater reliance on public transport for healthcare, shopping, social purposes
-- **Time sensitivity**: School hours and childcare schedules create rigid time constraints
-- **Safety concerns**: Evening/late-night service usage affected by personal security considerations
+**Key Findings from Research (NTS 2021, Stonewall, Transport Focus):**
+- **Women**: 75% of unpaid care work, 20% less likely to hold driving license
+- **Men**: Higher work-trip focus, early morning/late evening industrial routes needed
+- **Trans/Non-Binary**: 95% report safety concerns, gender-neutral facilities critical
+- **LGBTQ+**: 15-20% higher transit reliance, late-night service to LGBTQ+ districts essential
 
-**Service Design Implications:**
-- **Route connectivity** matters more than simple coverage (need efficient trip chaining)
-- **Frequency during school hours** (7-9am, 2-4pm) critical for working parents
-- **Lighting, shelter, CCTV** at stops improve safety perception
-- **Real-time information** reduces anxiety about wait times
-- **Step-free access** essential for those with strollers or mobility aids
+**Service Design Priorities for ALL Genders:**
+- **Men**: Early morning/late evening service, direct commuter routes, affordable fares
+- **Women**: Trip-chaining connectivity, school hours frequency, safety lighting/CCTV
+- **Trans/Non-Binary**: Gender-neutral facilities, staff training, flexible ID policies
+- **LGBTQ+**: Late-night service, safety audits, anti-discrimination enforcement
+- **All**: Accessible infrastructure, real-time info, harassment reporting, community consultation
 
-**Note:** This analysis examines gender demographics and coverage patterns. True gender equity analysis
-requires data on: journey purposes, trip chaining patterns, safety incidents, service quality perceptions,
-and barriers to access - which require passenger surveys and qualitative research.
+**Data Gaps:** LSOA-level trans, non-binary, LGBTQ+ geographic data not available. Qualitative research, safety audits, and co-design with diverse gender communities required for true equity analysis.
             """)
 
 st.markdown("---")

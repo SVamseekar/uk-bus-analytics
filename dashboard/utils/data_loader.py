@@ -252,3 +252,35 @@ def load_route_geometries() -> pd.DataFrame:
     except Exception as e:
         st.error(f"Error loading route geometries: {e}")
         return pd.DataFrame()
+
+
+@st.cache_data(ttl=3600)
+def load_route_metrics() -> pd.DataFrame:
+    """
+    Load route metrics from TransXChange parsing (route_metrics.csv)
+
+    Contains: route_length_km, num_stops, trips_per_day, mileage_per_day,
+              num_regions, regions_served, num_las, las_served
+
+    Returns:
+        DataFrame with 249,222 route patterns
+    """
+    file_path = OUTPUTS_PATH / 'route_metrics.csv'
+
+    if not file_path.exists():
+        st.error(f"Route metrics not found: {file_path}")
+        return pd.DataFrame()
+
+    try:
+        df = pd.read_csv(file_path, low_memory=False)
+
+        # Parse comma-separated region/LA lists into lists
+        if 'regions_served' in df.columns:
+            df['regions_served_list'] = df['regions_served'].str.split(',')
+        if 'las_served' in df.columns:
+            df['las_served_list'] = df['las_served'].str.split(',')
+
+        return df
+    except Exception as e:
+        st.error(f"Error loading route metrics: {e}")
+        return pd.DataFrame()
