@@ -22,6 +22,19 @@ REGIONS = {
     'east_england': 'East of England'
 }
 
+# ONS Official Region Codes (for GeoJSON joining)
+ONS_REGION_CODES = {
+    'yorkshire': 'E12000003',
+    'west_midlands': 'E12000005',
+    'east_midlands': 'E12000004',
+    'north_east': 'E12000001',
+    'south_west': 'E12000009',
+    'london': 'E12000007',
+    'south_east': 'E12000008',
+    'north_west': 'E12000002',
+    'east_england': 'E12000006'
+}
+
 def load_regional_data():
     """Load all regional processed data"""
     base_path = Path('data/processed/regions')
@@ -99,12 +112,26 @@ def calculate_regional_metrics(regional_data):
 
         # Demographic metrics (if available)
         avg_imd = df['Index of Multiple Deprivation (IMD) Score'].mean() if 'Index of Multiple Deprivation (IMD) Score' in df.columns else None
-        avg_unemployment = df['Unemployment rate - aged 16+'].mean() if 'Unemployment rate - aged 16+' in df.columns else None
+
+        # Calculate unemployment rate from claimants and working-age population
+        avg_unemployment = None
+        if 'lsoa_code' in df.columns and 'total_claimants' in df.columns and 'age_16_64' in df.columns:
+            # Get unique LSOAs to avoid double counting
+            lsoa_unemp_df = df[['lsoa_code', 'total_claimants', 'age_16_64']].drop_duplicates(subset=['lsoa_code'])
+            lsoa_unemp_df = lsoa_unemp_df.dropna(subset=['total_claimants', 'age_16_64'])
+            lsoa_unemp_df = lsoa_unemp_df[lsoa_unemp_df['age_16_64'] >= 100]  # Filter out very small populations
+
+            if len(lsoa_unemp_df) > 0:
+                total_claimants = lsoa_unemp_df['total_claimants'].sum()
+                total_working_age = lsoa_unemp_df['age_16_64'].sum()
+                avg_unemployment = (total_claimants / total_working_age) * 100 if total_working_age > 0 else None
+
         pct_no_car = df['pct_no_car'].mean() if 'pct_no_car' in df.columns else None
 
         # Create summary record
         summary = {
             'region_code': region_code,
+            'ons_code': ONS_REGION_CODES.get(region_code),
             'region_name': region_name,
             'total_stops': int(total_stops),
             'unique_lsoas': int(unique_lsoas),

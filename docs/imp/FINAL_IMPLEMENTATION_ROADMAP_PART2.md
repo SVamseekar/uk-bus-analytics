@@ -576,34 +576,42 @@ Improvement: +1.6 stops/1000 (50.0%)
 
 ### DAY 20: Category G (ML Insights - 5 Spatial Questions)
 
+**Status:** ✅ COMPLETE (November 10, 2025)
+
 **Questions G33-G37 (2 temporal deferred):**
 
-**G33.** ML-identified route clusters and patterns
-**Viz:** Interactive network graph with cluster colors
-**Story:** "7 distinct route types identified - urban frequent, rural long-distance, deprived area service..."
+**G33.** ✅ ML-identified route clusters and patterns
+**Viz:** Interactive bar charts + cluster comparison subplots
+**Story:** "198 distinct route types identified across 5,822 routes, largest cluster: Low-Frequency Local Feeders (915 routes, 15.7%)"
 **Data Source:** Route clustering model (trained Day 16)
+**Implementation:** Full visualization with top 10 clusters, characteristics comparison, narrative generation
 
-**G34.** Anomaly detection for underserved areas
-**Viz:** Map highlighting 1,247 anomalous LSOAs in red
-**Story:** "ML detected 1,247 LSOAs anomalously underserved given demographics..."
+**G34.** ✅ Anomaly detection for underserved areas
+**Viz:** Interactive map (sampled 2000 LSOAs) + gap type breakdown + severity analysis
+**Story:** "571 under-served areas affecting 1.12M people, 142 critical bus deserts with <1 stop/1000"
 **Data Source:** Isolation Forest model (trained Day 17)
+**Implementation:** Color-coded severity map, investment priority analysis, critical deserts table
 
-**G35.** Coverage prediction model insights
-**Viz:** Actual vs predicted coverage scatter plot
-**Story:** "Population density explains 34% of variance - policy matters more than demographics..."
+**G35.** ✅ Coverage prediction model insights
+**Viz:** Actual vs predicted scatter plot (sampled 2000) + residual analysis tables
+**Story:** "R² = 0.089 means demographics explain only 8.9% of coverage - 91.1% is policy-driven!"
 **Data Source:** Random Forest model (trained Day 17)
+**Implementation:** Prediction accuracy metrics, over/under-served top 10 tables, policy interpretation
 
-**G36.** Feature importance for service provision
-**Viz:** Horizontal bar chart (feature importance scores)
-**Story:** "Top drivers: population density (34%), urban/rural (28%), business count (10%)..."
+**G36.** ✅ Feature importance for service provision
+**Viz:** Horizontal bar chart with color scale
+**Story:** "Top drivers: Elderly population (34.1%), Car ownership (23.2%), IMD (22.1%) - Urban/rural only 0.5%!"
 **Data Source:** Random Forest feature importances
+**Implementation:** Top 3 drivers metrics, full feature table, policy implications narrative
 
-**G37.** Intervention impact simulations
-**Viz:** Interactive scenario tester (add X stops → predict coverage change)
-**Story:** "Adding 5 stops to E01004567 predicted to improve coverage by 50%..."
-**Data Source:** Coverage predictor model
+**G37.** ✅ Intervention impact simulations
+**Viz:** Interactive scenario simulator + before/after comparison bar chart + batch analysis
+**Story:** "Add 5 stops to selected LSOA → predict coverage improvement, BCR estimate, gap closure analysis"
+**Data Source:** Coverage predictor model + anomaly detection data
+**Implementation:** LSOA selector (top 100 gaps), simulation calculator, BCR estimator, batch scenario for top 10
 
-**Time:** 3 hours per question × 5 = 15 hours
+**Deliverable:** `dashboard/pages/06_ML_Insights.py` (1,084 lines)
+**Time:** 4 hours (full implementation with all visualizations and narratives)
 
 ---
 
